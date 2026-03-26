@@ -27,15 +27,17 @@ type App struct {
 	cfg  Config
 	ctrl *session.Controller
 
-	mu         sync.RWMutex
-	lastImg    *ebiten.Image
-	keys       map[ebiten.Key]bool
-	lastX      int
-	lastY      int
-	relative   bool
-	buttons    []button
-	renderRect rect
-	focused    bool
+	mu          sync.RWMutex
+	lastImg     *ebiten.Image
+	keys        map[ebiten.Key]bool
+	lastX       int
+	lastY       int
+	lastButtons byte
+	lastPhase   session.Phase
+	relative    bool
+	buttons     []button
+	renderRect  rect
+	focused     bool
 }
 
 func New(cfg Config) (*App, error) {
@@ -46,10 +48,11 @@ func New(cfg Config) (*App, error) {
 		Reconnect:  true,
 	})
 	return &App{
-		cfg:     cfg,
-		ctrl:    ctrl,
-		keys:    map[ebiten.Key]bool{},
-		focused: true,
+		cfg:       cfg,
+		ctrl:      ctrl,
+		keys:      map[ebiten.Key]bool{},
+		lastPhase: session.PhaseIdle,
+		focused:   true,
 	}, nil
 }
 
@@ -80,9 +83,10 @@ func (a *App) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
+	a.syncSessionState()
 	nowFocused := ebiten.IsFocused()
 	if a.focused && !nowFocused {
-		a.releaseAllKeys()
+		a.releaseAllKeys(true)
 		if a.relative {
 			a.relative = false
 			ebiten.SetCursorMode(ebiten.CursorModeVisible)
@@ -208,15 +212,17 @@ func (a *App) syncMouse() {
 	if a.relative {
 		dx := int8(clamp(float64(x-a.lastX), -127, 127))
 		dy := int8(clamp(float64(y-a.lastY), -127, 127))
-		if dx != 0 || dy != 0 || buttons != 0 {
+		if dx != 0 || dy != 0 || buttons != a.lastButtons {
 			_ = a.ctrl.SendRelMouse(dx, dy, buttons)
 		}
 	} else {
 		if !a.renderRect.valid() {
 			return
 		}
-		nx, ny := a.renderRect.toHID(x, y)
-		_ = a.ctrl.SendAbsPointer(nx, ny, buttons)
+		if x != a.lastX || y != a.lastY || buttons != a.lastButtons {
+			nx, ny := a.renderRect.toHID(x, y)
+			_ = a.ctrl.SendAbsPointer(nx, ny, buttons)
+		}
 	}
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
@@ -224,6 +230,7 @@ func (a *App) syncMouse() {
 	}
 	a.lastX = x
 	a.lastY = y
+	a.lastButtons = buttons
 }
 
 func keyToHID(key ebiten.Key) (byte, bool) {
@@ -473,7 +480,7 @@ func (a *App) handleClick() {
 		}
 		switch btn.id {
 		case "reconnect":
-			a.releaseAllKeys()
+			a.releaseAllKeys(true)
 			a.ctrl.ReconnectNow()
 		case "mouse":
 			a.relative = !a.relative
@@ -494,8 +501,31 @@ func (a *App) handleClick() {
 	}
 }
 
-func (a *App) releaseAllKeys() {
+func (a *App) syncSessionState() {
+	phase := a.ctrl.Snapshot().Phase
+	if phase == a.lastPhase {
+		return
+	}
+	if a.lastPhase == session.PhaseConnected && phase != session.PhaseConnected {
+		a.releaseAllKeys(false)
+		a.lastButtons = 0
+		if a.relative {
+			a.relative = false
+			ebiten.SetCursorMode(ebiten.CursorModeVisible)
+		}
+	}
+	if phase == session.PhaseConnected && a.lastPhase != session.PhaseConnected {
+		a.lastX, a.lastY = ebiten.CursorPosition()
+		a.lastButtons = 0
+	}
+	a.lastPhase = phase
+}
+
+func (a *App) releaseAllKeys(send bool) {
 	for key := range a.keys {
+		if !send {
+			continue
+		}
 		if hid, ok := keyToHID(key); ok {
 			_ = a.ctrl.SendKeypress(hid, false)
 		}
