@@ -42,7 +42,7 @@ func main() {
 	serveCmd.Flags().StringVar(&cfg.Faults.DropRPCMethod, "drop-rpc-method", "", "Drop responses for a specific JSON-RPC method")
 	serveCmd.Flags().DurationVar(&cfg.Faults.DisconnectAfter, "disconnect-after", 0, "Disconnect each WebRTC session after this duration")
 	serveCmd.Flags().DurationVar(&cfg.Faults.HIDHandshakeDelay, "hid-handshake-delay", 0, "Delay the HID handshake response by this duration")
-	serveCmd.Flags().StringVar(&cfg.Faults.InitialVideoState, "video-state", "ok", "Initial video input state event payload")
+	serveCmd.Flags().StringVar(&cfg.Faults.InitialVideoState, "video-state", "ready", "Initial video input state event payload")
 	serveCmd.Flags().IntVar(&cfg.Width, "width", 960, "Emulated video width")
 	serveCmd.Flags().IntVar(&cfg.Height, "height", 540, "Emulated video height")
 	serveCmd.Flags().IntVar(&cfg.FPS, "fps", 15, "Emulated video frame rate")
