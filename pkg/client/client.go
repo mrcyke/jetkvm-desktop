@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,12 @@ type Config struct {
 	RPCTimeout time.Duration
 }
 
+type LifecycleEvent struct {
+	Type       string
+	Connection webrtc.PeerConnectionState
+	Err        string
+}
+
 type Client struct {
 	cfg        Config
 	authClient *auth.Client
@@ -39,6 +46,7 @@ type Client struct {
 	hidReady       chan struct{}
 	hidReadyOnce   sync.Once
 	videoStream    *video.Stream
+	lifecycleCh    chan LifecycleEvent
 }
 
 type pendingCall struct {
@@ -54,10 +62,11 @@ func New(cfg Config) (*Client, error) {
 		cfg.RPCTimeout = 5 * time.Second
 	}
 	return &Client{
-		cfg:        cfg,
-		authClient: authClient,
-		eventCh:    make(chan jsonrpc.Event, 32),
-		hidReady:   make(chan struct{}),
+		cfg:         cfg,
+		authClient:  authClient,
+		eventCh:     make(chan jsonrpc.Event, 32),
+		hidReady:    make(chan struct{}),
+		lifecycleCh: make(chan LifecycleEvent, 32),
 	}, nil
 }
 
@@ -65,8 +74,13 @@ func (c *Client) Events() <-chan jsonrpc.Event {
 	return c.eventCh
 }
 
+func (c *Client) Lifecycle() <-chan LifecycleEvent {
+	return c.lifecycleCh
+}
+
 func (c *Client) Connect(ctx context.Context) error {
 	if err := c.authClient.Login(ctx, c.cfg.BaseURL, c.cfg.Password); err != nil {
+		c.emitLifecycle(LifecycleEvent{Type: "connect_error", Err: err.Error()})
 		return err
 	}
 
@@ -76,14 +90,18 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	c.pc = pc
 
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {})
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		c.emitLifecycle(LifecycleEvent{Type: "peer_state", Connection: state})
+	})
 
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		stream, err := video.AttachRemoteTrack(ctx, track)
 		if err != nil {
+			c.emitLifecycle(LifecycleEvent{Type: "video_error", Err: err.Error()})
 			return
 		}
 		c.videoStream = stream
+		c.emitLifecycle(LifecycleEvent{Type: "video_ready"})
 	})
 	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
@@ -123,17 +141,23 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err := json.Unmarshal(rawAnswer, &answer); err != nil {
 		return err
 	}
-	return pc.SetRemoteDescription(answer)
+	if err := pc.SetRemoteDescription(answer); err != nil {
+		c.emitLifecycle(LifecycleEvent{Type: "connect_error", Err: err.Error()})
+		return err
+	}
+	c.emitLifecycle(LifecycleEvent{Type: "connected"})
+	return nil
 }
 
 func (c *Client) Close() error {
+	var err error
 	if c.videoStream != nil {
 		c.videoStream.Close()
 	}
-	if c.pc == nil {
-		return nil
+	if c.pc != nil {
+		err = c.pc.Close()
 	}
-	return c.pc.Close()
+	return err
 }
 
 func (c *Client) WaitForHID(ctx context.Context) error {
@@ -284,7 +308,10 @@ func (c *Client) openDataChannels() error {
 			return
 		}
 		if hs, ok := decoded.(hidrpc.Handshake); ok && hs.Version == hidrpc.Version {
-			c.hidReadyOnce.Do(func() { close(c.hidReady) })
+			c.hidReadyOnce.Do(func() {
+				close(c.hidReady)
+				c.emitLifecycle(LifecycleEvent{Type: "hid_ready"})
+			})
 		}
 	})
 
@@ -304,4 +331,18 @@ func (c *Client) openDataChannels() error {
 
 func (c *Client) HTTPClient() *http.Client {
 	return c.authClient.HTTPClient()
+}
+
+func (c *Client) LatestFrame() image.Image {
+	if c.videoStream == nil || c.videoStream.Latest() == nil {
+		return nil
+	}
+	return c.videoStream.Latest().Image
+}
+
+func (c *Client) emitLifecycle(evt LifecycleEvent) {
+	select {
+	case c.lifecycleCh <- evt:
+	default:
+	}
 }

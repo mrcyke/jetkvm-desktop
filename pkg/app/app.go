@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"image"
 	"image/color"
 	"sort"
 	"sync"
@@ -11,8 +12,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"github.com/lkarlslund/jetkvm-native/pkg/client"
+	"github.com/lkarlslund/jetkvm-native/pkg/session"
 )
 
 type Config struct {
@@ -22,119 +24,82 @@ type Config struct {
 }
 
 type App struct {
-	cfg    Config
-	client *client.Client
+	cfg  Config
+	ctrl *session.Controller
 
-	mu       sync.RWMutex
-	status   string
-	deviceID string
-	quality  float64
-	lastImg  *ebiten.Image
-	keys     map[ebiten.Key]bool
-	lastX    int
-	lastY    int
-	relative bool
+	mu         sync.RWMutex
+	lastImg    *ebiten.Image
+	keys       map[ebiten.Key]bool
+	lastX      int
+	lastY      int
+	relative   bool
+	renderRect rect
+	focused    bool
 }
 
 func New(cfg Config) (*App, error) {
-	c, err := client.New(client.Config{
+	ctrl := session.New(session.Config{
 		BaseURL:    cfg.BaseURL,
 		Password:   cfg.Password,
 		RPCTimeout: cfg.RPCTimeout,
+		Reconnect:  true,
 	})
-	if err != nil {
-		return nil, err
-	}
 	return &App{
-		cfg:    cfg,
-		client: c,
-		status: "starting",
-		keys:   map[ebiten.Key]bool{},
+		cfg:     cfg,
+		ctrl:    ctrl,
+		keys:    map[ebiten.Key]bool{},
+		focused: true,
 	}, nil
 }
 
-func (a *App) Connect(ctx context.Context) error {
-	a.SetStatus("connecting")
-	if err := a.client.Connect(ctx); err != nil {
-		return err
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := a.client.WaitForHID(waitCtx); err != nil {
-		return err
-	}
-
-	var deviceID string
-	if err := a.client.Call(ctx, "getDeviceID", nil, &deviceID); err != nil {
-		return err
-	}
-	var quality float64
-	if err := a.client.Call(ctx, "getStreamQualityFactor", nil, &quality); err != nil {
-		return err
-	}
-	a.mu.Lock()
-	a.deviceID = deviceID
-	a.quality = quality
-	a.mu.Unlock()
-	a.SetStatus(fmt.Sprintf("connected to %s", deviceID))
-
-	go func() {
-		for evt := range a.client.Events() {
-			a.SetStatus("event: " + evt.Method)
-		}
-	}()
-
+func (a *App) Start(ctx context.Context) {
+	a.ctrl.Start(ctx)
 	go func() {
 		for {
-			stream := a.client.VideoStream()
-			if stream == nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			frame := a.ctrl.LatestFrame()
+			if frame == nil {
 				time.Sleep(50 * time.Millisecond)
 				continue
 			}
-			for frame := range stream.Frames() {
-				img := ebiten.NewImageFromImage(frame.Image)
-				a.mu.Lock()
-				a.lastImg = img
-				a.mu.Unlock()
-			}
-			return
+			img := ebiten.NewImageFromImage(frame)
+			a.mu.Lock()
+			a.lastImg = img
+			a.mu.Unlock()
+			time.Sleep(16 * time.Millisecond)
 		}
 	}()
-	return nil
-}
-
-func (a *App) SetStatus(status string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.status = status
-}
-
-func (a *App) statusLine() string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.status
 }
 
 func (a *App) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
+	nowFocused := ebiten.IsFocused()
+	if a.focused && !nowFocused {
+		a.releaseAllKeys()
+		if a.relative {
+			a.relative = false
+			ebiten.SetCursorMode(ebiten.CursorModeVisible)
+		}
+	}
+	a.focused = nowFocused
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
 		a.relative = !a.relative
 		if a.relative {
 			ebiten.SetCursorMode(ebiten.CursorModeCaptured)
-			a.SetStatus("relative mouse enabled")
 		} else {
 			ebiten.SetCursorMode(ebiten.CursorModeVisible)
-			a.SetStatus("absolute mouse enabled")
 		}
+		a.lastX, a.lastY = ebiten.CursorPosition()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
-		go func() {
-			_ = a.client.Call(context.Background(), "reboot", map[string]any{"force": false}, nil)
-		}()
-		a.SetStatus("reboot requested")
+		_ = a.ctrl.Reboot()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
 		a.adjustStreamQuality(+0.05)
@@ -149,37 +114,45 @@ func (a *App) Update() error {
 }
 
 func (a *App) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 12, G: 20, B: 32, A: 255})
+	snap := a.ctrl.Snapshot()
+	screen.Fill(color.RGBA{R: 10, G: 15, B: 24, A: 255})
+	vector.DrawFilledRect(screen, 0, 0, float32(screen.Bounds().Dx()), 44, color.RGBA{R: 16, G: 28, B: 44, A: 255}, false)
+	vector.DrawFilledRect(screen, 0, float32(screen.Bounds().Dy()-32), float32(screen.Bounds().Dx()), 32, color.RGBA{R: 16, G: 28, B: 44, A: 255}, false)
+
+	videoArea := image.Rect(16, 56, screen.Bounds().Dx()-16, screen.Bounds().Dy()-44)
 	a.mu.RLock()
 	img := a.lastImg
 	a.mu.RUnlock()
 	if img != nil {
-		w, h := img.Size()
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
 		op := &ebiten.DrawImageOptions{}
-		sw, sh := screen.Size()
-		scale := min(float64(sw)/float64(w), float64(sh)/float64(h))
+		scale := min(float64(videoArea.Dx())/float64(w), float64(videoArea.Dy())/float64(h))
+		drawW := float64(w) * scale
+		drawH := float64(h) * scale
+		x := float64(videoArea.Min.X) + (float64(videoArea.Dx())-drawW)/2
+		y := float64(videoArea.Min.Y) + (float64(videoArea.Dy())-drawH)/2
 		op.GeoM.Scale(scale, scale)
-		op.GeoM.Translate((float64(sw)-float64(w)*scale)/2, (float64(sh)-float64(h)*scale)/2)
+		op.GeoM.Translate(x, y)
 		screen.DrawImage(img, op)
+		a.renderRect = rect{
+			x: x,
+			y: y,
+			w: drawW,
+			h: drawH,
+		}
+	} else {
+		a.renderRect = rect{}
 	}
 	mode := "absolute"
 	if a.relative {
 		mode = "relative"
 	}
-	a.mu.RLock()
-	deviceID := a.deviceID
-	quality := a.quality
-	a.mu.RUnlock()
-	ebitenutil.DebugPrint(
-		screen,
-		fmt.Sprintf(
-			"jetkvm-native\n%s\ndevice: %s\nquality: %.2f (+/-)\nmouse: %s (F8 toggles)\nF5 reboot\nEsc to quit",
-			a.statusLine(),
-			deviceID,
-			quality,
-			mode,
-		),
-	)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("jetkvm-client  %s", snap.BaseURL), 16, 14)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("phase: %s  hid: %t  rtc: %s  quality: %.2f  mouse: %s", snap.Phase, snap.HIDReady, snap.RTCState, snap.Quality, mode), 16, screen.Bounds().Dy()-24)
+	if snap.DeviceID != "" || snap.Hostname != "" {
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s  %s", snap.DeviceID, snap.Hostname), screen.Bounds().Dx()-320, 14)
+	}
+	a.drawOverlay(screen, snap, img != nil)
 }
 
 func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -187,6 +160,9 @@ func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (a *App) syncKeyboard() {
+	if a.ctrl.Snapshot().Phase != session.PhaseConnected {
+		return
+	}
 	keys := inpututil.AppendPressedKeys(nil)
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	current := make(map[ebiten.Key]bool, len(keys))
@@ -194,7 +170,7 @@ func (a *App) syncKeyboard() {
 		current[key] = true
 		if !a.keys[key] {
 			if hid, ok := keyToHID(key); ok {
-				_ = a.client.SendKeypress(hid, true)
+				_ = a.ctrl.SendKeypress(hid, true)
 			}
 		}
 	}
@@ -203,13 +179,16 @@ func (a *App) syncKeyboard() {
 			continue
 		}
 		if hid, ok := keyToHID(key); ok {
-			_ = a.client.SendKeypress(hid, false)
+			_ = a.ctrl.SendKeypress(hid, false)
 		}
 	}
 	a.keys = current
 }
 
 func (a *App) syncMouse() {
+	if a.ctrl.Snapshot().Phase != session.PhaseConnected {
+		return
+	}
 	x, y := ebiten.CursorPosition()
 	buttons := byte(0)
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
@@ -222,20 +201,18 @@ func (a *App) syncMouse() {
 		dx := int8(clamp(float64(x-a.lastX), -127, 127))
 		dy := int8(clamp(float64(y-a.lastY), -127, 127))
 		if dx != 0 || dy != 0 || buttons != 0 {
-			_ = a.client.SendRelMouse(dx, dy, buttons)
+			_ = a.ctrl.SendRelMouse(dx, dy, buttons)
 		}
 	} else {
-		sw, sh := ebiten.WindowSize()
-		if sw == 0 || sh == 0 {
+		if !a.renderRect.valid() {
 			return
 		}
-		nx := uint16(clamp(float64(x)/float64(sw)*32767.0, 0, 32767))
-		ny := uint16(clamp(float64(y)/float64(sh)*32767.0, 0, 32767))
-		_ = a.client.SendAbsPointer(nx, ny, buttons)
+		nx, ny := a.renderRect.toHID(x, y)
+		_ = a.ctrl.SendAbsPointer(nx, ny, buttons)
 	}
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
-		_ = a.client.SendWheel(int8(clamp(-wheelY, -127, 127)))
+		_ = a.ctrl.SendWheel(int8(clamp(-wheelY, -127, 127)))
 	}
 	a.lastX = x
 	a.lastY = y
@@ -472,18 +449,71 @@ func min(a, b float64) float64 {
 }
 
 func (a *App) adjustStreamQuality(delta float64) {
-	a.mu.RLock()
-	next := clamp(a.quality+delta, 0.1, 1.0)
-	a.mu.RUnlock()
+	snap := a.ctrl.Snapshot()
+	next := clamp(snap.Quality+delta, 0.1, 1.0)
 
 	go func(value float64) {
-		if err := a.client.Call(context.Background(), "setStreamQualityFactor", map[string]any{"factor": value}, nil); err != nil {
-			a.SetStatus("quality update failed")
-			return
-		}
-		a.mu.Lock()
-		a.quality = value
-		a.mu.Unlock()
-		a.SetStatus(fmt.Sprintf("quality set to %.2f", value))
+		_ = a.ctrl.SetQuality(value)
 	}(next)
+}
+
+func (a *App) releaseAllKeys() {
+	for key := range a.keys {
+		if hid, ok := keyToHID(key); ok {
+			_ = a.ctrl.SendKeypress(hid, false)
+		}
+	}
+	a.keys = map[ebiten.Key]bool{}
+}
+
+func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo bool) {
+	message := ""
+	switch snap.Phase {
+	case session.PhaseConnecting:
+		message = "Connecting to device"
+	case session.PhaseReconnecting:
+		message = "Reconnecting to device"
+	case session.PhaseAuthFailed:
+		message = "Authentication failed"
+	case session.PhaseOtherSession:
+		message = "Another session took over"
+	case session.PhaseRebooting:
+		message = "Device rebooting"
+	case session.PhaseDisconnected:
+		message = "Connection lost"
+	case session.PhaseFatal:
+		message = "Fatal error"
+	case session.PhaseConnected:
+		if !hasVideo || !snap.VideoReady {
+			message = "Loading video stream"
+		}
+	}
+	if message == "" {
+		return
+	}
+	vector.DrawFilledRect(screen, 24, 72, float32(screen.Bounds().Dx()-48), 72, color.RGBA{R: 8, G: 12, B: 18, A: 224}, false)
+	ebitenutil.DebugPrintAt(screen, message, 40, 96)
+	if snap.LastError != "" && snap.Phase != session.PhaseConnected {
+		ebitenutil.DebugPrintAt(screen, snap.LastError, 40, 116)
+	}
+}
+
+type rect struct {
+	x float64
+	y float64
+	w float64
+	h float64
+}
+
+func (r rect) valid() bool {
+	return r.w > 0 && r.h > 0
+}
+
+func (r rect) toHID(cursorX, cursorY int) (uint16, uint16) {
+	if !r.valid() {
+		return 0, 0
+	}
+	relX := clamp((float64(cursorX)-r.x)/r.w, 0, 1)
+	relY := clamp((float64(cursorY)-r.y)/r.h, 0, 1)
+	return uint16(relX * 32767.0), uint16(relY * 32767.0)
 }

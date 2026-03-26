@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
 	"time"
 
@@ -27,12 +25,7 @@ func main() {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-
-			go func() {
-				if err := clientApp.Connect(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					clientApp.SetStatus(fmt.Sprintf("connect failed: %v", err))
-				}
-			}()
+			clientApp.Start(ctx)
 
 			ebiten.SetWindowSize(1280, 720)
 			ebiten.SetWindowTitle("jetkvm-client")

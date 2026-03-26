@@ -670,6 +670,12 @@ func (s *session) handleRPC(data []byte) error {
 			time.Sleep(100 * time.Millisecond)
 			_ = s.sendEvent("videoInputState", "rebooting")
 		}()
+	case "forceDisconnect":
+		resp = jsonrpc.NewResponse(req.ID, true)
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			_ = s.pc.Close()
+		}()
 	case "getKeyboardLayout":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.KeyboardLayout)
 	case "setKeyboardLayout":
