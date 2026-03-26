@@ -151,10 +151,20 @@ func startEmulator(t *testing.T) (*emulator.Server, context.Context, context.Can
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
-			t.Errorf("server: %v", err)
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
 		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for srv.BaseURL() == "" && time.Now().Before(deadline) {

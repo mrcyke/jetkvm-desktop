@@ -23,11 +23,20 @@ func TestHTTPBootstrapFlow(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
-			t.Errorf("server: %v", err)
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
 		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -93,12 +102,20 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
-			t.Errorf("server: %v", err)
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
 		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -245,11 +262,20 @@ func TestClientRPCTimeoutWhenMethodDropped(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
-			t.Errorf("server: %v", err)
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
 		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
 	}()
 	waitForBaseURL(t, srv)
 
@@ -292,11 +318,20 @@ func TestForcedDisconnectFaultClosesPeerConnection(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
-			t.Errorf("server: %v", err)
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
 		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
 	}()
 	waitForBaseURL(t, srv)
 

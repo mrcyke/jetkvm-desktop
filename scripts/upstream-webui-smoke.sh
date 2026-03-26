@@ -114,7 +114,10 @@ try {
   await page.waitForFunction(() => Boolean(window.__kvmTestHooks), { timeout: 60000 });
   await page.waitForFunction(() => window.__kvmTestHooks?.isWebRTCConnected?.() === true, { timeout: 60000 });
   await page.waitForFunction(() => window.__kvmTestHooks?.isHidRpcReady?.() === true, { timeout: 60000 });
-  await page.waitForFunction(() => window.__kvmTestHooks?.isVideoStreamActive?.() === true, { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const dimensions = window.__kvmTestHooks?.getVideoStreamDimensions?.();
+    return Boolean(dimensions?.width && dimensions?.height);
+  }, { timeout: 60000 });
   const dimensions = await page.evaluate(() => window.__kvmTestHooks?.getVideoStreamDimensions?.() ?? null);
   if (!dimensions || !dimensions.width || !dimensions.height) {
     throw new Error(`expected video stream dimensions, got ${JSON.stringify(dimensions)}`);
