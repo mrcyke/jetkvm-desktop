@@ -125,12 +125,12 @@ func (a *App) Update() error {
 
 func (a *App) Draw(screen *ebiten.Image) {
 	snap := a.ctrl.Snapshot()
-	screen.Fill(color.RGBA{R: 10, G: 15, B: 24, A: 255})
-	vector.DrawFilledRect(screen, 0, 0, float32(screen.Bounds().Dx()), 44, color.RGBA{R: 16, G: 28, B: 44, A: 255}, false)
-	vector.DrawFilledRect(screen, 0, float32(screen.Bounds().Dy()-32), float32(screen.Bounds().Dx()), 32, color.RGBA{R: 16, G: 28, B: 44, A: 255}, false)
+	screen.Fill(color.RGBA{R: 9, G: 14, B: 22, A: 255})
+	vector.DrawFilledRect(screen, 0, 0, float32(screen.Bounds().Dx()), 52, color.RGBA{R: 15, G: 26, B: 42, A: 255}, false)
+	vector.DrawFilledRect(screen, 0, float32(screen.Bounds().Dy()-38), float32(screen.Bounds().Dx()), 38, color.RGBA{R: 15, G: 26, B: 42, A: 255}, false)
 
-	videoArea := image.Rect(16, 56, screen.Bounds().Dx()-16, screen.Bounds().Dy()-44)
-	a.buttons = layoutButtons(screen.Bounds().Dx())
+	videoArea := image.Rect(16, 64, screen.Bounds().Dx()-16, screen.Bounds().Dy()-52)
+	a.buttons = layoutButtons(screen.Bounds().Dx(), snap, a.relative)
 	a.mu.RLock()
 	img := a.lastImg
 	a.mu.RUnlock()
@@ -154,18 +154,11 @@ func (a *App) Draw(screen *ebiten.Image) {
 	} else {
 		a.renderRect = rect{}
 	}
-	mode := "absolute"
-	if a.relative {
-		mode = "relative"
-	}
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("jetkvm-client  %s", snap.BaseURL), 16, 14)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("phase: %s  hid: %t  rtc: %s  quality: %.2f  mouse: %s", snap.Phase, snap.HIDReady, snap.RTCState, snap.Quality, mode), 16, screen.Bounds().Dy()-24)
-	if snap.DeviceID != "" || snap.Hostname != "" {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s  %s", snap.DeviceID, snap.Hostname), screen.Bounds().Dx()-320, 14)
-	}
+	a.drawHeader(screen, snap)
 	for _, btn := range a.buttons {
 		drawButton(screen, btn)
 	}
+	a.drawFooter(screen, snap)
 	a.drawOverlay(screen, snap, img != nil)
 }
 
@@ -174,7 +167,7 @@ func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (a *App) syncKeyboard() {
-	if a.ctrl.Snapshot().Phase != session.PhaseConnected {
+	if !a.focused || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
 	rawKeys := inpututil.AppendPressedKeys(nil)
@@ -209,6 +202,11 @@ func (a *App) syncMouse() {
 		}
 	} else {
 		if !a.renderRect.valid() {
+			return
+		}
+		if !a.renderRect.contains(x, y) && buttons == 0 && a.lastButtons == 0 {
+			a.lastX = x
+			a.lastY = y
 			return
 		}
 		if x != a.lastX || y != a.lastY || buttons != a.lastButtons {
@@ -467,7 +465,7 @@ func (a *App) adjustStreamQuality(delta float64) {
 func (a *App) handleClick() {
 	x, y := ebiten.CursorPosition()
 	for _, btn := range a.buttons {
-		if !btn.rect.contains(x, y) {
+		if !btn.enabled || !btn.rect.contains(x, y) {
 			continue
 		}
 		switch btn.id {
@@ -494,12 +492,14 @@ func (a *App) handleClick() {
 }
 
 func (a *App) syncSessionState() {
-	phase := a.ctrl.Snapshot().Phase
+	snap := a.ctrl.Snapshot()
+	phase := snap.Phase
 	if phase == a.lastPhase {
 		return
 	}
 	if a.lastPhase == session.PhaseConnected && phase != session.PhaseConnected {
 		a.releaseAllKeys(false)
+		a.releasePointerState()
 		a.lastButtons = 0
 		if a.relative {
 			a.relative = false
@@ -539,36 +539,123 @@ func (a *App) releaseAllKeys(send bool) {
 	_ = a.keyboard.ReleaseAll()
 }
 
-func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo bool) {
-	message := ""
-	switch snap.Phase {
-	case session.PhaseConnecting:
-		message = "Connecting to device"
-	case session.PhaseReconnecting:
-		message = "Reconnecting to device"
-	case session.PhaseAuthFailed:
-		message = "Authentication failed"
-	case session.PhaseOtherSession:
-		message = "Another session took over"
-	case session.PhaseRebooting:
-		message = "Device rebooting"
-	case session.PhaseDisconnected:
-		message = "Connection lost"
-	case session.PhaseFatal:
-		message = "Fatal error"
-	case session.PhaseConnected:
-		if !hasVideo || !snap.VideoReady {
-			message = "Loading video stream"
-		}
-	}
-	if message == "" {
+func (a *App) releasePointerState() {
+	if a.lastButtons == 0 {
 		return
 	}
-	vector.DrawFilledRect(screen, 24, 72, float32(screen.Bounds().Dx()-48), 72, color.RGBA{R: 8, G: 12, B: 18, A: 224}, false)
-	ebitenutil.DebugPrintAt(screen, message, 40, 96)
-	if snap.LastError != "" && snap.Phase != session.PhaseConnected {
-		ebitenutil.DebugPrintAt(screen, snap.LastError, 40, 116)
+	if a.relative {
+		_ = a.ctrl.SendRelMouse(0, 0, 0)
+		return
 	}
+	if a.renderRect.valid() {
+		nx, ny := a.renderRect.toHID(a.lastX, a.lastY)
+		_ = a.ctrl.SendAbsPointer(nx, ny, 0)
+	}
+}
+
+func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo bool) {
+	title := ""
+	detail := ""
+	switch snap.Phase {
+	case session.PhaseConnecting:
+		title = "Connecting"
+		detail = "Opening auth, WebRTC, and HID channels"
+	case session.PhaseReconnecting:
+		title = "Reconnecting"
+		detail = snap.Status
+	case session.PhaseAuthFailed:
+		title = "Authentication Failed"
+		detail = "Check the password and local auth mode"
+	case session.PhaseOtherSession:
+		title = "Session Replaced"
+		detail = "Another client took over the device"
+	case session.PhaseRebooting:
+		title = "Rebooting"
+		detail = "Waiting for the device to come back"
+	case session.PhaseDisconnected:
+		title = "Disconnected"
+		detail = "The session dropped before it became ready"
+	case session.PhaseFatal:
+		title = "Fatal Error"
+		detail = snap.LastError
+	case session.PhaseConnected:
+		if !hasVideo || !snap.VideoReady {
+			title = "Loading Video"
+			detail = "Waiting for the first decoded frame"
+		}
+	}
+	if title == "" {
+		return
+	}
+	vector.DrawFilledRect(screen, 26, 84, float32(screen.Bounds().Dx()-52), 86, color.RGBA{R: 8, G: 12, B: 18, A: 228}, false)
+	ebitenutil.DebugPrintAt(screen, title, 42, 108)
+	if detail == "" && snap.LastError != "" && snap.Phase != session.PhaseConnected {
+		detail = snap.LastError
+	}
+	if detail != "" {
+		ebitenutil.DebugPrintAt(screen, detail, 42, 128)
+	}
+}
+
+func (a *App) drawHeader(screen *ebiten.Image, snap session.Snapshot) {
+	label := "jetkvm-client"
+	if snap.DeviceID != "" {
+		label = snap.DeviceID
+	} else if snap.Hostname != "" {
+		label = snap.Hostname
+	}
+	ebitenutil.DebugPrintAt(screen, label, 16, 10)
+	ebitenutil.DebugPrintAt(screen, snap.BaseURL, 16, 28)
+
+	chips := []string{
+		"phase: " + string(snap.Phase),
+		"rtc: " + rtcLabel(snap.RTCState),
+		boolChip("hid", snap.HIDReady),
+		boolChip("video", snap.VideoReady),
+		fmt.Sprintf("quality: %.0f%%", snap.Quality*100),
+		"mouse: " + a.mouseModeLabel(),
+	}
+	x := 260
+	for _, chip := range chips {
+		ebitenutil.DebugPrintAt(screen, chip, x, 18)
+		x += (len(chip) * 7) + 16
+	}
+}
+
+func (a *App) drawFooter(screen *ebiten.Image, snap session.Snapshot) {
+	left := "F8 toggle mouse mode  F5 reboot  +/- stream quality"
+	if snap.Phase == session.PhaseConnected {
+		left = left + "  click inside the video to control the host"
+	}
+	ebitenutil.DebugPrintAt(screen, left, 16, screen.Bounds().Dy()-26)
+	if snap.LastError != "" && snap.Phase != session.PhaseConnected {
+		ebitenutil.DebugPrintAt(screen, trimForFooter(snap.LastError), screen.Bounds().Dx()-360, screen.Bounds().Dy()-26)
+	}
+}
+
+func boolChip(label string, value bool) string {
+	if value {
+		return label + ": ready"
+	}
+	return label + ": pending"
+}
+
+func rtcLabel(state interface{}) string {
+	return fmt.Sprint(state)
+}
+
+func trimForFooter(value string) string {
+	if len(value) <= 42 {
+		return value
+	}
+	return value[:39] + "..."
+}
+
+func (a *App) mouseModeLabel() string {
+	if a.relative {
+		return "relative"
+	}
+	return "absolute"
 }
 
 type rect struct {
@@ -599,20 +686,23 @@ func (r rect) toHID(cursorX, cursorY int) (uint16, uint16) {
 type button struct {
 	id    string
 	label string
+	enabled bool
 	rect  rect
 }
 
-func layoutButtons(width int) []button {
+func layoutButtons(width int, snap session.Snapshot, relative bool) []button {
+	canAct := snap.Phase == session.PhaseConnected || snap.Phase == session.PhaseDisconnected || snap.Phase == session.PhaseReconnecting
 	defs := []struct {
 		id    string
 		label string
 		w     float64
+		enabled bool
 	}{
-		{id: "reconnect", label: "Reconnect", w: 92},
-		{id: "mouse", label: "Mouse Mode", w: 96},
-		{id: "quality_down", label: "Quality -", w: 82},
-		{id: "quality_up", label: "Quality +", w: 82},
-		{id: "reboot", label: "Reboot", w: 76},
+		{id: "reconnect", label: reconnectLabel(snap.Phase), w: 92, enabled: true},
+		{id: "mouse", label: mouseButtonLabel(relative), w: 104, enabled: snap.Phase == session.PhaseConnected},
+		{id: "quality_down", label: "Quality -", w: 82, enabled: snap.Phase == session.PhaseConnected},
+		{id: "quality_up", label: "Quality +", w: 82, enabled: snap.Phase == session.PhaseConnected},
+		{id: "reboot", label: "Reboot", w: 76, enabled: canAct},
 	}
 	buttons := make([]button, 0, len(defs))
 	x := float64(width) - 24
@@ -621,6 +711,7 @@ func layoutButtons(width int) []button {
 		buttons = append([]button{{
 			id:    defs[i].id,
 			label: defs[i].label,
+			enabled: defs[i].enabled,
 			rect: rect{
 				x: x,
 				y: 8,
@@ -634,6 +725,28 @@ func layoutButtons(width int) []button {
 }
 
 func drawButton(screen *ebiten.Image, btn button) {
-	vector.DrawFilledRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), color.RGBA{R: 28, G: 48, B: 72, A: 255}, false)
+	fill := color.RGBA{R: 28, G: 48, B: 72, A: 255}
+	if !btn.enabled {
+		fill = color.RGBA{R: 22, G: 30, B: 42, A: 255}
+	}
+	vector.DrawFilledRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), fill, false)
 	ebitenutil.DebugPrintAt(screen, btn.label, int(btn.rect.x)+10, int(btn.rect.y)+8)
+}
+
+func reconnectLabel(phase session.Phase) string {
+	switch phase {
+	case session.PhaseConnected:
+		return "Reconnect"
+	case session.PhaseConnecting, session.PhaseReconnecting:
+		return "Retry"
+	default:
+		return "Connect"
+	}
+}
+
+func mouseButtonLabel(relative bool) string {
+	if relative {
+		return "Mouse: Relative"
+	}
+	return "Mouse: Absolute"
 }
