@@ -22,16 +22,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-go run ./cmd/jetkvm-emulator --listen "${emulator_url#http://}" >/tmp/jetkvm-emulator.log 2>&1 &
+go run ./cmd/jetkvm-emulator serve --listen "${emulator_url#http://}" >/tmp/jetkvm-emulator.log 2>&1 &
 emu_pid=$!
 
 for _ in $(seq 1 60); do
+  if ! kill -0 "$emu_pid" >/dev/null 2>&1; then
+    cat /tmp/jetkvm-emulator.log >&2 || true
+    exit 1
+  fi
   if curl -fsS "${emulator_url}/healthz" >/dev/null; then
     break
   fi
   sleep 1
 done
-curl -fsS "${emulator_url}/healthz" >/dev/null
+if ! curl -fsS "${emulator_url}/healthz" >/dev/null; then
+  cat /tmp/jetkvm-emulator.log >&2 || true
+  exit 1
+fi
 
 pushd "$ui_dir" >/dev/null
 npm ci
@@ -40,12 +47,19 @@ JETKVM_PROXY_URL="${emulator_url/http/ws}" npx vite dev --mode=device --host 127
 ui_pid=$!
 
 for _ in $(seq 1 60); do
+  if ! kill -0 "$ui_pid" >/dev/null 2>&1; then
+    cat /tmp/jetkvm-webui.log >&2 || true
+    exit 1
+  fi
   if curl -fsS "${ui_url}" >/dev/null; then
     break
   fi
   sleep 1
 done
-curl -fsS "${ui_url}" >/dev/null
+if ! curl -fsS "${ui_url}" >/dev/null; then
+  cat /tmp/jetkvm-webui.log >&2 || true
+  exit 1
+fi
 
 node --input-type=module <<'EOF'
 import { chromium } from '@playwright/test';

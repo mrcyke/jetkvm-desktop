@@ -2,14 +2,12 @@ package input
 
 import (
 	"testing"
-
-	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestKeyboardUpdatePressAndRelease(t *testing.T) {
 	k := NewKeyboard()
 
-	events := k.Update([]ebiten.Key{ebiten.KeyA, ebiten.KeyShiftLeft})
+	events := k.Update([]Key{KeyA, KeyShiftLeft})
 	if len(events) != 2 {
 		t.Fatalf("expected 2 press events, got %d", len(events))
 	}
@@ -20,7 +18,7 @@ func TestKeyboardUpdatePressAndRelease(t *testing.T) {
 		t.Fatalf("unexpected second event: %+v", events[1])
 	}
 
-	events = k.Update([]ebiten.Key{ebiten.KeyShiftLeft})
+	events = k.Update([]Key{KeyShiftLeft})
 	if len(events) != 1 {
 		t.Fatalf("expected 1 release event, got %d", len(events))
 	}
@@ -31,7 +29,7 @@ func TestKeyboardUpdatePressAndRelease(t *testing.T) {
 
 func TestKeyboardReleaseAll(t *testing.T) {
 	k := NewKeyboard()
-	_ = k.Update([]ebiten.Key{ebiten.KeyB, ebiten.KeyControlRight})
+	_ = k.Update([]Key{KeyB, KeyControlRight})
 
 	events := k.ReleaseAll()
 	if len(events) != 2 {
@@ -50,7 +48,7 @@ func TestKeyboardReleaseAll(t *testing.T) {
 func TestKeyboardIgnoresUnknownKeys(t *testing.T) {
 	k := NewKeyboard()
 
-	events := k.Update([]ebiten.Key{ebiten.KeyF24})
+	events := k.Update([]Key{KeyUnknown})
 	if len(events) != 0 {
 		t.Fatalf("expected unknown key to be ignored, got %+v", events)
 	}

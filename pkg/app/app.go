@@ -177,7 +177,13 @@ func (a *App) syncKeyboard() {
 	if a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
-	keys := inpututil.AppendPressedKeys(nil)
+	rawKeys := inpututil.AppendPressedKeys(nil)
+	keys := make([]input.Key, 0, len(rawKeys))
+	for _, rawKey := range rawKeys {
+		if key, ok := toInputKey(rawKey); ok {
+			keys = append(keys, key)
+		}
+	}
 	for _, evt := range a.keyboard.Update(keys) {
 		_ = a.ctrl.SendKeypress(evt.HID, evt.Press)
 	}
@@ -234,6 +240,219 @@ func min(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+func toInputKey(key ebiten.Key) (input.Key, bool) {
+	switch key {
+	case ebiten.KeyA:
+		return input.KeyA, true
+	case ebiten.KeyB:
+		return input.KeyB, true
+	case ebiten.KeyC:
+		return input.KeyC, true
+	case ebiten.KeyD:
+		return input.KeyD, true
+	case ebiten.KeyE:
+		return input.KeyE, true
+	case ebiten.KeyF:
+		return input.KeyF, true
+	case ebiten.KeyG:
+		return input.KeyG, true
+	case ebiten.KeyH:
+		return input.KeyH, true
+	case ebiten.KeyI:
+		return input.KeyI, true
+	case ebiten.KeyJ:
+		return input.KeyJ, true
+	case ebiten.KeyK:
+		return input.KeyK, true
+	case ebiten.KeyL:
+		return input.KeyL, true
+	case ebiten.KeyM:
+		return input.KeyM, true
+	case ebiten.KeyN:
+		return input.KeyN, true
+	case ebiten.KeyO:
+		return input.KeyO, true
+	case ebiten.KeyP:
+		return input.KeyP, true
+	case ebiten.KeyQ:
+		return input.KeyQ, true
+	case ebiten.KeyR:
+		return input.KeyR, true
+	case ebiten.KeyS:
+		return input.KeyS, true
+	case ebiten.KeyT:
+		return input.KeyT, true
+	case ebiten.KeyU:
+		return input.KeyU, true
+	case ebiten.KeyV:
+		return input.KeyV, true
+	case ebiten.KeyW:
+		return input.KeyW, true
+	case ebiten.KeyX:
+		return input.KeyX, true
+	case ebiten.KeyY:
+		return input.KeyY, true
+	case ebiten.KeyZ:
+		return input.KeyZ, true
+	case ebiten.Key1:
+		return input.Key1, true
+	case ebiten.Key2:
+		return input.Key2, true
+	case ebiten.Key3:
+		return input.Key3, true
+	case ebiten.Key4:
+		return input.Key4, true
+	case ebiten.Key5:
+		return input.Key5, true
+	case ebiten.Key6:
+		return input.Key6, true
+	case ebiten.Key7:
+		return input.Key7, true
+	case ebiten.Key8:
+		return input.Key8, true
+	case ebiten.Key9:
+		return input.Key9, true
+	case ebiten.Key0:
+		return input.Key0, true
+	case ebiten.KeyEnter:
+		return input.KeyEnter, true
+	case ebiten.KeyEscape:
+		return input.KeyEscape, true
+	case ebiten.KeyBackspace:
+		return input.KeyBackspace, true
+	case ebiten.KeyTab:
+		return input.KeyTab, true
+	case ebiten.KeySpace:
+		return input.KeySpace, true
+	case ebiten.KeyMinus:
+		return input.KeyMinus, true
+	case ebiten.KeyEqual:
+		return input.KeyEqual, true
+	case ebiten.KeyLeftBracket:
+		return input.KeyLeftBracket, true
+	case ebiten.KeyRightBracket:
+		return input.KeyRightBracket, true
+	case ebiten.KeyBackslash:
+		return input.KeyBackslash, true
+	case ebiten.KeySemicolon:
+		return input.KeySemicolon, true
+	case ebiten.KeyApostrophe:
+		return input.KeyApostrophe, true
+	case ebiten.KeyGraveAccent:
+		return input.KeyGraveAccent, true
+	case ebiten.KeyComma:
+		return input.KeyComma, true
+	case ebiten.KeyPeriod:
+		return input.KeyPeriod, true
+	case ebiten.KeySlash:
+		return input.KeySlash, true
+	case ebiten.KeyCapsLock:
+		return input.KeyCapsLock, true
+	case ebiten.KeyF1:
+		return input.KeyF1, true
+	case ebiten.KeyF2:
+		return input.KeyF2, true
+	case ebiten.KeyF3:
+		return input.KeyF3, true
+	case ebiten.KeyF4:
+		return input.KeyF4, true
+	case ebiten.KeyF5:
+		return input.KeyF5, true
+	case ebiten.KeyF6:
+		return input.KeyF6, true
+	case ebiten.KeyF7:
+		return input.KeyF7, true
+	case ebiten.KeyF8:
+		return input.KeyF8, true
+	case ebiten.KeyF9:
+		return input.KeyF9, true
+	case ebiten.KeyF10:
+		return input.KeyF10, true
+	case ebiten.KeyF11:
+		return input.KeyF11, true
+	case ebiten.KeyF12:
+		return input.KeyF12, true
+	case ebiten.KeyPrintScreen:
+		return input.KeyPrintScreen, true
+	case ebiten.KeyScrollLock:
+		return input.KeyScrollLock, true
+	case ebiten.KeyPause:
+		return input.KeyPause, true
+	case ebiten.KeyInsert:
+		return input.KeyInsert, true
+	case ebiten.KeyHome:
+		return input.KeyHome, true
+	case ebiten.KeyPageUp:
+		return input.KeyPageUp, true
+	case ebiten.KeyDelete:
+		return input.KeyDelete, true
+	case ebiten.KeyEnd:
+		return input.KeyEnd, true
+	case ebiten.KeyPageDown:
+		return input.KeyPageDown, true
+	case ebiten.KeyRight:
+		return input.KeyRight, true
+	case ebiten.KeyLeft:
+		return input.KeyLeft, true
+	case ebiten.KeyDown:
+		return input.KeyDown, true
+	case ebiten.KeyUp:
+		return input.KeyUp, true
+	case ebiten.KeyNumLock:
+		return input.KeyNumLock, true
+	case ebiten.KeyNumpadDivide:
+		return input.KeyNumpadDivide, true
+	case ebiten.KeyNumpadMultiply:
+		return input.KeyNumpadMultiply, true
+	case ebiten.KeyNumpadSubtract:
+		return input.KeyNumpadSubtract, true
+	case ebiten.KeyNumpadAdd:
+		return input.KeyNumpadAdd, true
+	case ebiten.KeyNumpadEnter:
+		return input.KeyNumpadEnter, true
+	case ebiten.KeyNumpad1:
+		return input.KeyNumpad1, true
+	case ebiten.KeyNumpad2:
+		return input.KeyNumpad2, true
+	case ebiten.KeyNumpad3:
+		return input.KeyNumpad3, true
+	case ebiten.KeyNumpad4:
+		return input.KeyNumpad4, true
+	case ebiten.KeyNumpad5:
+		return input.KeyNumpad5, true
+	case ebiten.KeyNumpad6:
+		return input.KeyNumpad6, true
+	case ebiten.KeyNumpad7:
+		return input.KeyNumpad7, true
+	case ebiten.KeyNumpad8:
+		return input.KeyNumpad8, true
+	case ebiten.KeyNumpad9:
+		return input.KeyNumpad9, true
+	case ebiten.KeyNumpad0:
+		return input.KeyNumpad0, true
+	case ebiten.KeyNumpadDecimal:
+		return input.KeyNumpadDecimal, true
+	case ebiten.KeyControlLeft:
+		return input.KeyControlLeft, true
+	case ebiten.KeyShiftLeft:
+		return input.KeyShiftLeft, true
+	case ebiten.KeyAltLeft:
+		return input.KeyAltLeft, true
+	case ebiten.KeyMetaLeft:
+		return input.KeyMetaLeft, true
+	case ebiten.KeyControlRight:
+		return input.KeyControlRight, true
+	case ebiten.KeyShiftRight:
+		return input.KeyShiftRight, true
+	case ebiten.KeyAltRight:
+		return input.KeyAltRight, true
+	case ebiten.KeyMetaRight:
+		return input.KeyMetaRight, true
+	default:
+		return input.KeyUnknown, false
+	}
 }
 
 func (a *App) adjustStreamQuality(delta float64) {
