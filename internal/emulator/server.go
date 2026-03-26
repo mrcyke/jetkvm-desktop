@@ -15,6 +15,7 @@ import (
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/hidrpc"
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/jsonrpc"
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/signaling"
+	"github.com/lkarlslund/jetkvm-native/internal/video"
 )
 
 type AuthMode string
@@ -28,6 +29,9 @@ type Config struct {
 	ListenAddr string
 	AuthMode   AuthMode
 	Password   string
+	Width      int
+	Height     int
+	FPS        int
 }
 
 type DeviceState struct {
@@ -70,6 +74,15 @@ type session struct {
 func NewServer(cfg Config) (*Server, error) {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1:8080"
+	}
+	if cfg.Width == 0 {
+		cfg.Width = 960
+	}
+	if cfg.Height == 0 {
+		cfg.Height = 540
+	}
+	if cfg.FPS == 0 {
+		cfg.FPS = 15
 	}
 	s := &Server{
 		cfg:    cfg,
@@ -247,11 +260,26 @@ func (s *Server) exchangeOffer(encoded string) (string, error) {
 		}
 	})
 
-	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
-		Direction: webrtc.RTPTransceiverDirectionSendonly,
-	}); err != nil {
+	videoTrack, err := webrtc.NewTrackLocalStaticSample(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
+		"video",
+		"jetkvm-native-emulator",
+	)
+	if err != nil {
 		return "", err
 	}
+	sender, err := pc.AddTrack(videoTrack)
+	if err != nil {
+		return "", err
+	}
+	go func() {
+		rtcpBuf := make([]byte, 1500)
+		for {
+			if _, _, err := sender.Read(rtcpBuf); err != nil {
+				return
+			}
+		}
+	}()
 
 	if err := pc.SetRemoteDescription(offer); err != nil {
 		return "", err
@@ -272,6 +300,19 @@ func (s *Server) exchangeOffer(encoded string) (string, error) {
 	}
 	s.session = sess
 	s.mu.Unlock()
+
+	streamCtx, cancel := context.WithCancel(context.Background())
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			cancel()
+		}
+	})
+	if err := video.StartTestPattern(streamCtx, s.cfg.Width, s.cfg.Height, s.cfg.FPS, videoTrack); err != nil {
+		cancel()
+		return "", err
+	}
 
 	rawAnswer, err := json.Marshal(pc.LocalDescription())
 	if err != nil {
@@ -367,6 +408,8 @@ func (s *session) handleHID(channel string, data []byte) error {
 	case hidrpc.Keypress:
 		s.serverRef.state.KeysDown = []byte{v.Key, 0, 0, 0, 0, 0}
 		return s.sendEvent("keysDownState", map[string]any{"modifier": 0, "keys": s.serverRef.state.KeysDown})
+	case hidrpc.Pointer:
+		return s.sendEvent("pointerState", map[string]any{"x": v.X, "y": v.Y, "buttons": v.Buttons})
 	}
 	return nil
 }

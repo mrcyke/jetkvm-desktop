@@ -15,6 +15,7 @@ import (
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/hidrpc"
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/jsonrpc"
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/signaling"
+	"github.com/lkarlslund/jetkvm-native/internal/video"
 )
 
 type Config struct {
@@ -37,6 +38,7 @@ type Client struct {
 	requestCounter atomic.Uint64
 	hidReady       chan struct{}
 	hidReadyOnce   sync.Once
+	videoStream    *video.Stream
 }
 
 type pendingCall struct {
@@ -76,7 +78,13 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {})
 
-	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {})
+	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		stream, err := video.AttachRemoteTrack(ctx, track)
+		if err != nil {
+			return
+		}
+		c.videoStream = stream
+	})
 	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	}); err != nil {
@@ -119,6 +127,9 @@ func (c *Client) Connect(ctx context.Context) error {
 }
 
 func (c *Client) Close() error {
+	if c.videoStream != nil {
+		c.videoStream.Close()
+	}
 	if c.pc == nil {
 		return nil
 	}
@@ -187,6 +198,22 @@ func (c *Client) SendKeypress(key byte, press bool) error {
 		return err
 	}
 	return c.hidDC.Send(data)
+}
+
+func (c *Client) SendAbsPointer(x, y uint16, buttons byte) error {
+	if c.hidUnreliable == nil {
+		return fmt.Errorf("pointer channel not ready")
+	}
+	msg := hidrpc.Pointer{X: x, Y: y, Buttons: buttons}
+	data, err := msg.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return c.hidUnreliable.Send(data)
+}
+
+func (c *Client) VideoStream() *video.Stream {
+	return c.videoStream
 }
 
 func (c *Client) openDataChannels() error {

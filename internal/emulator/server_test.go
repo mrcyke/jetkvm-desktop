@@ -66,6 +66,21 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 	if err := c.SendKeypress(4, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := c.SendAbsPointer(1000, 2000, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		stream := c.VideoStream()
+		if stream != nil && stream.Latest() != nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if c.VideoStream() == nil || c.VideoStream().Latest() == nil {
+		t.Fatal("expected at least one decoded video frame")
+	}
 
 	deadline = time.Now().Add(2 * time.Second)
 	for len(srv.Inputs()) == 0 && time.Now().Before(deadline) {
@@ -73,5 +88,16 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 	}
 	if len(srv.Inputs()) == 0 {
 		t.Fatal("expected HID input to be recorded")
+	}
+
+	foundPointer := false
+	for _, input := range srv.Inputs() {
+		if input.Channel == "hidrpc-unreliable-ordered" {
+			foundPointer = true
+			break
+		}
+	}
+	if !foundPointer {
+		t.Fatal("expected pointer input on hidrpc-unreliable-ordered channel")
 	}
 }

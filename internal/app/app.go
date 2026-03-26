@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/lkarlslund/jetkvm-native/internal/client"
 )
@@ -23,8 +25,10 @@ type App struct {
 	cfg    Config
 	client *client.Client
 
-	mu     sync.RWMutex
-	status string
+	mu      sync.RWMutex
+	status  string
+	lastImg *ebiten.Image
+	keys    map[ebiten.Key]bool
 }
 
 func New(cfg Config) (*App, error) {
@@ -40,6 +44,7 @@ func New(cfg Config) (*App, error) {
 		cfg:    cfg,
 		client: c,
 		status: "starting",
+		keys:   map[ebiten.Key]bool{},
 	}, nil
 }
 
@@ -66,6 +71,23 @@ func (a *App) Connect(ctx context.Context) error {
 			a.SetStatus("event: " + evt.Method)
 		}
 	}()
+
+	go func() {
+		for {
+			stream := a.client.VideoStream()
+			if stream == nil {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			for frame := range stream.Frames() {
+				img := ebiten.NewImageFromImage(frame.Image)
+				a.mu.Lock()
+				a.lastImg = img
+				a.mu.Unlock()
+			}
+			return
+		}
+	}()
 	return nil
 }
 
@@ -85,14 +107,233 @@ func (a *App) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
+
+	a.syncKeyboard()
+	a.syncMouse()
 	return nil
 }
 
 func (a *App) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{R: 12, G: 20, B: 32, A: 255})
+	a.mu.RLock()
+	img := a.lastImg
+	a.mu.RUnlock()
+	if img != nil {
+		w, h := img.Size()
+		op := &ebiten.DrawImageOptions{}
+		sw, sh := screen.Size()
+		scale := min(float64(sw)/float64(w), float64(sh)/float64(h))
+		op.GeoM.Scale(scale, scale)
+		op.GeoM.Translate((float64(sw)-float64(w)*scale)/2, (float64(sh)-float64(h)*scale)/2)
+		screen.DrawImage(img, op)
+	}
 	ebitenutil.DebugPrint(screen, "jetkvm-native\n"+a.statusLine()+"\nEsc to quit")
 }
 
 func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
+}
+
+func (a *App) syncKeyboard() {
+	keys := inpututil.AppendPressedKeys(nil)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	current := make(map[ebiten.Key]bool, len(keys))
+	for _, key := range keys {
+		current[key] = true
+		if !a.keys[key] {
+			if hid, ok := keyToHID(key); ok {
+				_ = a.client.SendKeypress(hid, true)
+			}
+		}
+	}
+	for key := range a.keys {
+		if current[key] {
+			continue
+		}
+		if hid, ok := keyToHID(key); ok {
+			_ = a.client.SendKeypress(hid, false)
+		}
+	}
+	a.keys = current
+}
+
+func (a *App) syncMouse() {
+	x, y := ebiten.CursorPosition()
+	sw, sh := ebiten.WindowSize()
+	if sw == 0 || sh == 0 {
+		return
+	}
+
+	nx := uint16(clamp(float64(x)/float64(sw)*32767.0, 0, 32767))
+	ny := uint16(clamp(float64(y)/float64(sh)*32767.0, 0, 32767))
+	buttons := byte(0)
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		buttons |= 1
+	}
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+		buttons |= 2
+	}
+	_ = a.client.SendAbsPointer(nx, ny, buttons)
+}
+
+func keyToHID(key ebiten.Key) (byte, bool) {
+	switch key {
+	case ebiten.KeyA:
+		return 4, true
+	case ebiten.KeyB:
+		return 5, true
+	case ebiten.KeyC:
+		return 6, true
+	case ebiten.KeyD:
+		return 7, true
+	case ebiten.KeyE:
+		return 8, true
+	case ebiten.KeyF:
+		return 9, true
+	case ebiten.KeyG:
+		return 10, true
+	case ebiten.KeyH:
+		return 11, true
+	case ebiten.KeyI:
+		return 12, true
+	case ebiten.KeyJ:
+		return 13, true
+	case ebiten.KeyK:
+		return 14, true
+	case ebiten.KeyL:
+		return 15, true
+	case ebiten.KeyM:
+		return 16, true
+	case ebiten.KeyN:
+		return 17, true
+	case ebiten.KeyO:
+		return 18, true
+	case ebiten.KeyP:
+		return 19, true
+	case ebiten.KeyQ:
+		return 20, true
+	case ebiten.KeyR:
+		return 21, true
+	case ebiten.KeyS:
+		return 22, true
+	case ebiten.KeyT:
+		return 23, true
+	case ebiten.KeyU:
+		return 24, true
+	case ebiten.KeyV:
+		return 25, true
+	case ebiten.KeyW:
+		return 26, true
+	case ebiten.KeyX:
+		return 27, true
+	case ebiten.KeyY:
+		return 28, true
+	case ebiten.KeyZ:
+		return 29, true
+	case ebiten.Key1:
+		return 30, true
+	case ebiten.Key2:
+		return 31, true
+	case ebiten.Key3:
+		return 32, true
+	case ebiten.Key4:
+		return 33, true
+	case ebiten.Key5:
+		return 34, true
+	case ebiten.Key6:
+		return 35, true
+	case ebiten.Key7:
+		return 36, true
+	case ebiten.Key8:
+		return 37, true
+	case ebiten.Key9:
+		return 38, true
+	case ebiten.Key0:
+		return 39, true
+	case ebiten.KeyEnter:
+		return 40, true
+	case ebiten.KeyEscape:
+		return 41, true
+	case ebiten.KeyBackspace:
+		return 42, true
+	case ebiten.KeyTab:
+		return 43, true
+	case ebiten.KeySpace:
+		return 44, true
+	case ebiten.KeyMinus:
+		return 45, true
+	case ebiten.KeyEqual:
+		return 46, true
+	case ebiten.KeyLeftBracket:
+		return 47, true
+	case ebiten.KeyRightBracket:
+		return 48, true
+	case ebiten.KeyBackslash:
+		return 49, true
+	case ebiten.KeySemicolon:
+		return 51, true
+	case ebiten.KeyApostrophe:
+		return 52, true
+	case ebiten.KeyGraveAccent:
+		return 53, true
+	case ebiten.KeyComma:
+		return 54, true
+	case ebiten.KeyPeriod:
+		return 55, true
+	case ebiten.KeySlash:
+		return 56, true
+	case ebiten.KeyCapsLock:
+		return 57, true
+	case ebiten.KeyF1:
+		return 58, true
+	case ebiten.KeyF2:
+		return 59, true
+	case ebiten.KeyF3:
+		return 60, true
+	case ebiten.KeyF4:
+		return 61, true
+	case ebiten.KeyF5:
+		return 62, true
+	case ebiten.KeyF6:
+		return 63, true
+	case ebiten.KeyF7:
+		return 64, true
+	case ebiten.KeyF8:
+		return 65, true
+	case ebiten.KeyF9:
+		return 66, true
+	case ebiten.KeyF10:
+		return 67, true
+	case ebiten.KeyF11:
+		return 68, true
+	case ebiten.KeyF12:
+		return 69, true
+	case ebiten.KeyRight:
+		return 79, true
+	case ebiten.KeyLeft:
+		return 80, true
+	case ebiten.KeyDown:
+		return 81, true
+	case ebiten.KeyUp:
+		return 82, true
+	default:
+		return 0, false
+	}
+}
+
+func clamp(value, minValue, maxValue float64) float64 {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
