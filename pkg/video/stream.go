@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"runtime"
 	"sync"
 	"time"
 
@@ -140,7 +141,7 @@ func StartTestPattern(ctx context.Context, width, height, fps int, track *webrtc
 	ticker := time.NewTicker(time.Second / time.Duration(fps))
 	go func() {
 		defer ticker.Stop()
-		defer encoder.Close()
+		defer closeEncoder(encoder)
 
 		frameIndex := 0
 		for {
@@ -172,6 +173,15 @@ func StartTestPattern(ctx context.Context, width, height, fps int, track *webrtc
 	}()
 
 	return nil
+}
+
+func closeEncoder(encoder *openh264.Encoder) {
+	// openh264-go encoder teardown can block indefinitely on Windows in CI.
+	// The process is short-lived in tests and the OS will reclaim resources.
+	if runtime.GOOS == "windows" {
+		return
+	}
+	_ = encoder.Close()
 }
 
 func newPatternFrame(width, height, frameIndex int) *image.YCbCr {
