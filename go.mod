@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/Azunyan1111/openh264-go v0.2.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11

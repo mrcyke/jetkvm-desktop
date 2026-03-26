@@ -1,6 +1,7 @@
 package emulator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/lkarlslund/jetkvm-native/internal/protocol/hidrpc"
@@ -106,6 +108,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/auth/local-password", s.handleDeletePassword)
 	mux.HandleFunc("/cloud/state", s.handleCloudState)
 	mux.HandleFunc("/webrtc/session", s.handleSession)
+	mux.HandleFunc("/webrtc/signaling/client", s.handleSignalingClient)
 	mux.HandleFunc("/healthz", s.handleHealth)
 
 	s.httpServer = &http.Server{Handler: mux}
@@ -226,6 +229,68 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(signaling.ExchangeResponse{SD: answer})
+}
+
+func (s *Server) handleSignalingClient(w http.ResponseWriter, r *http.Request) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	_ = conn.WriteJSON(map[string]any{
+		"type": "device-metadata",
+		"data": map[string]any{
+			"deviceVersion": "jetkvm-native-emulator",
+		},
+	})
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		if bytes.Equal(msg, []byte("ping")) {
+			_ = conn.WriteMessage(websocket.TextMessage, []byte("pong"))
+			continue
+		}
+
+		var message struct {
+			Type string          `json:"type"`
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(msg, &message); err != nil {
+			continue
+		}
+
+		switch message.Type {
+		case "offer":
+			var req signaling.ExchangeRequest
+			if err := json.Unmarshal(message.Data, &req); err != nil {
+				continue
+			}
+			answer, err := s.exchangeOffer(req.SD)
+			if err != nil {
+				continue
+			}
+			_ = conn.WriteJSON(map[string]any{"type": "answer", "data": answer})
+		case "new-ice-candidate":
+			var candidate webrtc.ICECandidateInit
+			if err := json.Unmarshal(message.Data, &candidate); err != nil {
+				continue
+			}
+			s.mu.Lock()
+			current := s.session
+			s.mu.Unlock()
+			if current != nil {
+				_ = current.pc.AddICECandidate(candidate)
+			}
+		}
+	}
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
@@ -446,10 +511,10 @@ func (s *Server) exchangeOffer(encoded string) (string, error) {
 		case "rpc":
 			sess.rpc = dc
 			dc.OnOpen(func() {
-				_ = sess.sendEvent("videoInputState", map[string]string{"state": s.state.VideoState})
+				_ = sess.sendEvent("videoInputState", s.state.VideoState)
 				_ = sess.sendEvent("keyboardLedState", map[string]byte{"mask": s.state.KeyboardLEDMask})
 				_ = sess.sendEvent("networkState", map[string]any{"hostname": s.state.Hostname, "ip": "127.0.0.1"})
-				_ = sess.sendEvent("usbState", map[string]any{"keyboard": true, "mouse": true, "massStorage": false})
+				_ = sess.sendEvent("usbState", "attached")
 				_ = sess.sendEvent("failsafeMode", map[string]any{"active": false, "reason": ""})
 			})
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -603,7 +668,7 @@ func (s *session) handleRPC(data []byte) error {
 		resp = jsonrpc.NewResponse(req.ID, true)
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			_ = s.sendEvent("videoInputState", map[string]string{"state": "rebooting"})
+			_ = s.sendEvent("videoInputState", "rebooting")
 		}()
 	case "getKeyboardLayout":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.KeyboardLayout)
@@ -672,6 +737,23 @@ func (s *session) handleRPC(data []byte) error {
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"vendor_id": "0xCafe", "product_id": "0x4000"})
 	case "getUsbDevices":
 		resp = jsonrpc.NewResponse(req.ID, []any{})
+	case "getKeyboardMacros":
+		resp = jsonrpc.NewResponse(req.ID, []any{})
+	case "getLocalVersion":
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{"appVersion": "emulator-dev", "systemVersion": "emulator-dev"})
+	case "getUpdateStatus":
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{
+			"local": map[string]any{
+				"appVersion":    "emulator-dev",
+				"systemVersion": "emulator-dev",
+			},
+			"remote": map[string]any{
+				"appVersion":    "emulator-dev",
+				"systemVersion": "emulator-dev",
+			},
+			"systemUpdateAvailable": false,
+			"appUpdateAvailable":    false,
+		})
 	default:
 		resp = jsonrpc.NewErrorResponse(req.ID, -32601, "method not found", req.Method)
 	}
