@@ -77,7 +77,13 @@ import { chromium } from '@playwright/test';
 
 const url = process.env.SMOKE_UI_URL;
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  args: [
+    '--autoplay-policy=no-user-gesture-required',
+    '--enable-unsafe-swiftshader',
+  ],
+});
 const page = await browser.newPage();
 
 page.on('console', (message) => {
@@ -98,6 +104,16 @@ try {
     throw new Error(`expected video stream dimensions, got ${JSON.stringify(dimensions)}`);
   }
   console.log(`Smoke passed: ${JSON.stringify(dimensions)}`);
+} catch (error) {
+  const hookState = await page.evaluate(() => ({
+    hasHooks: Boolean(window.__kvmTestHooks),
+    isWebRTCConnected: window.__kvmTestHooks?.isWebRTCConnected?.() ?? null,
+    isHidRpcReady: window.__kvmTestHooks?.isHidRpcReady?.() ?? null,
+    isVideoStreamActive: window.__kvmTestHooks?.isVideoStreamActive?.() ?? null,
+    dimensions: window.__kvmTestHooks?.getVideoStreamDimensions?.() ?? null,
+  })).catch(() => null);
+  console.error(`browser:hook-state: ${JSON.stringify(hookState)}`);
+  throw error;
 } finally {
   await browser.close();
 }
