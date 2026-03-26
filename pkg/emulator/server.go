@@ -103,7 +103,7 @@ func NewServer(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:    cfg,
 		token:  "jetkvm-native-emulator-token",
-		state:  DeviceState{DeviceID: "emu-jetkvm-001", VideoState: "ok", StreamQualityFactor: 0.75, KeyboardLEDMask: 0, KeysDown: []byte{0, 0, 0, 0, 0, 0}, Hostname: "jetkvm-emulator", KeyboardLayout: "en_US"},
+		state:  DeviceState{DeviceID: "emu-jetkvm-001", VideoState: "ready", StreamQualityFactor: 0.75, KeyboardLEDMask: 0, KeysDown: []byte{0, 0, 0, 0, 0, 0}, Hostname: "jetkvm-emulator", KeyboardLayout: "en_US"},
 		inputs: make([]InputRecord, 0, 32),
 	}
 	if cfg.Faults.InitialVideoState != "" {
@@ -700,8 +700,16 @@ func (s *session) handleRPC(data []byte) error {
 	case "reboot":
 		resp = jsonrpc.NewResponse(req.ID, true)
 		go func() {
+			s.serverRef.mu.Lock()
+			s.serverRef.state.VideoState = "rebooting"
+			s.serverRef.mu.Unlock()
 			time.Sleep(100 * time.Millisecond)
 			_ = s.sendEvent("videoInputState", "rebooting")
+			time.Sleep(250 * time.Millisecond)
+			s.serverRef.mu.Lock()
+			s.serverRef.state.VideoState = "ready"
+			s.serverRef.mu.Unlock()
+			_ = s.sendEvent("videoInputState", "ready")
 		}()
 	case "forceDisconnect":
 		resp = jsonrpc.NewResponse(req.ID, true)
