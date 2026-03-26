@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,66 @@ func TestControllerTransitionsToOtherSession(t *testing.T) {
 	waitForPhase(t, first, PhaseOtherSession, 5*time.Second)
 }
 
+func TestControllerReceivesVideoAndForwardsInput(t *testing.T) {
+	srv, ctx, cancel := startEmulator(t)
+	defer cancel()
+
+	controller := New(Config{
+		BaseURL:    srv.BaseURL(),
+		Password:   "secret",
+		RPCTimeout: 2 * time.Second,
+		Reconnect:  true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+	waitForFrame(t, controller, 5*time.Second)
+
+	if err := controller.SendKeypress(4, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.SendAbsPointer(1200, 3400, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.SendRelMouse(5, -3, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.SendWheel(-1); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		inputs := srv.Inputs()
+		if len(inputs) < 4 {
+			time.Sleep(25 * time.Millisecond)
+			continue
+		}
+		foundKeypress := false
+		foundPointer := false
+		foundMouse := false
+		foundWheel := false
+		for _, input := range inputs {
+			switch {
+			case strings.Contains(input.Type, "Keypress"):
+				foundKeypress = true
+			case strings.Contains(input.Type, "Pointer"):
+				foundPointer = true
+			case strings.Contains(input.Type, "Mouse"):
+				foundMouse = true
+			case strings.Contains(input.Type, "Wheel"):
+				foundWheel = true
+			}
+		}
+		if foundKeypress && foundPointer && foundMouse && foundWheel {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("expected keypress, pointer, mouse, and wheel inputs, got %+v", srv.Inputs())
+}
+
 func startEmulator(t *testing.T) (*emulator.Server, context.Context, context.CancelFunc) {
 	t.Helper()
 	srv, err := emulator.NewServer(emulator.Config{
@@ -115,4 +176,16 @@ func waitForPhase(t *testing.T, controller *Controller, phase Phase, timeout tim
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for phase %s, got %+v", phase, controller.Snapshot())
+}
+
+func waitForFrame(t *testing.T, controller *Controller, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if controller.LatestFrame() != nil {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for first video frame")
 }
