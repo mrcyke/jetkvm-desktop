@@ -33,6 +33,7 @@ type App struct {
 	lastX      int
 	lastY      int
 	relative   bool
+	buttons    []button
 	renderRect rect
 	focused    bool
 }
@@ -107,6 +108,9 @@ func (a *App) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
 		a.adjustStreamQuality(-0.05)
 	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		a.handleClick()
+	}
 
 	a.syncKeyboard()
 	a.syncMouse()
@@ -120,6 +124,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, float32(screen.Bounds().Dy()-32), float32(screen.Bounds().Dx()), 32, color.RGBA{R: 16, G: 28, B: 44, A: 255}, false)
 
 	videoArea := image.Rect(16, 56, screen.Bounds().Dx()-16, screen.Bounds().Dy()-44)
+	a.buttons = layoutButtons(screen.Bounds().Dx())
 	a.mu.RLock()
 	img := a.lastImg
 	a.mu.RUnlock()
@@ -151,6 +156,9 @@ func (a *App) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("phase: %s  hid: %t  rtc: %s  quality: %.2f  mouse: %s", snap.Phase, snap.HIDReady, snap.RTCState, snap.Quality, mode), 16, screen.Bounds().Dy()-24)
 	if snap.DeviceID != "" || snap.Hostname != "" {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s  %s", snap.DeviceID, snap.Hostname), screen.Bounds().Dx()-320, 14)
+	}
+	for _, btn := range a.buttons {
+		drawButton(screen, btn)
 	}
 	a.drawOverlay(screen, snap, img != nil)
 }
@@ -457,6 +465,35 @@ func (a *App) adjustStreamQuality(delta float64) {
 	}(next)
 }
 
+func (a *App) handleClick() {
+	x, y := ebiten.CursorPosition()
+	for _, btn := range a.buttons {
+		if !btn.rect.contains(x, y) {
+			continue
+		}
+		switch btn.id {
+		case "reconnect":
+			a.releaseAllKeys()
+			a.ctrl.ReconnectNow()
+		case "mouse":
+			a.relative = !a.relative
+			if a.relative {
+				ebiten.SetCursorMode(ebiten.CursorModeCaptured)
+			} else {
+				ebiten.SetCursorMode(ebiten.CursorModeVisible)
+			}
+			a.lastX, a.lastY = ebiten.CursorPosition()
+		case "quality_down":
+			a.adjustStreamQuality(-0.05)
+		case "quality_up":
+			a.adjustStreamQuality(+0.05)
+		case "reboot":
+			_ = a.ctrl.Reboot()
+		}
+		return
+	}
+}
+
 func (a *App) releaseAllKeys() {
 	for key := range a.keys {
 		if hid, ok := keyToHID(key); ok {
@@ -509,6 +546,11 @@ func (r rect) valid() bool {
 	return r.w > 0 && r.h > 0
 }
 
+func (r rect) contains(cursorX, cursorY int) bool {
+	return float64(cursorX) >= r.x && float64(cursorX) <= r.x+r.w &&
+		float64(cursorY) >= r.y && float64(cursorY) <= r.y+r.h
+}
+
 func (r rect) toHID(cursorX, cursorY int) (uint16, uint16) {
 	if !r.valid() {
 		return 0, 0
@@ -516,4 +558,46 @@ func (r rect) toHID(cursorX, cursorY int) (uint16, uint16) {
 	relX := clamp((float64(cursorX)-r.x)/r.w, 0, 1)
 	relY := clamp((float64(cursorY)-r.y)/r.h, 0, 1)
 	return uint16(relX * 32767.0), uint16(relY * 32767.0)
+}
+
+type button struct {
+	id    string
+	label string
+	rect  rect
+}
+
+func layoutButtons(width int) []button {
+	defs := []struct {
+		id    string
+		label string
+		w     float64
+	}{
+		{id: "reconnect", label: "Reconnect", w: 92},
+		{id: "mouse", label: "Mouse Mode", w: 96},
+		{id: "quality_down", label: "Quality -", w: 82},
+		{id: "quality_up", label: "Quality +", w: 82},
+		{id: "reboot", label: "Reboot", w: 76},
+	}
+	buttons := make([]button, 0, len(defs))
+	x := float64(width) - 24
+	for i := len(defs) - 1; i >= 0; i-- {
+		x -= defs[i].w
+		buttons = append([]button{{
+			id:    defs[i].id,
+			label: defs[i].label,
+			rect: rect{
+				x: x,
+				y: 8,
+				w: defs[i].w,
+				h: 26,
+			},
+		}}, buttons...)
+		x -= 8
+	}
+	return buttons
+}
+
+func drawButton(screen *ebiten.Image, btn button) {
+	vector.DrawFilledRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), color.RGBA{R: 28, G: 48, B: 72, A: 255}, false)
+	ebitenutil.DebugPrintAt(screen, btn.label, int(btn.rect.x)+10, int(btn.rect.y)+8)
 }
