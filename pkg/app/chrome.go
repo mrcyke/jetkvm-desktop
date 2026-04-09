@@ -482,7 +482,7 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	contentW := min(720, float64(bounds.Dx())-sidebarW-84)
 	panelW := sidebarW + contentW + 44
 	panelW = min(panelW, float64(bounds.Dx()-48))
-	panelH := min(max(a.settingsPanelHeight(section), settingsSidebarHeight(len(sections))), float64(bounds.Dy()-56))
+	panelH := min(max(a.settingsPanelHeight(section, contentW), settingsSidebarHeight(len(sections))), float64(bounds.Dy()-56))
 
 	panelX := (float64(bounds.Dx()) - panelW) / 2
 	panelY := (float64(bounds.Dy()) - panelH) / 2
@@ -532,47 +532,151 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	contentX := panelX + sidebarW + 18
 	contentY := panelY + 18
 	contentW = panelW - sidebarW - 32
+	contentDescH := wrappedTextHeight(section.description, contentW-48, 12)
+	contentHeaderH := 28 + contentDescH + 18
 	drawText(screen, section.label, contentX, contentY, 22, color.RGBA{R: 240, G: 244, B: 248, A: 255})
 	drawWrappedText(screen, section.description, contentX, contentY+28, contentW-48, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	vector.StrokeLine(screen, float32(contentX), float32(contentY+58), float32(contentX+contentW), float32(contentY+58), 1, color.RGBA{R: 42, G: 54, B: 68, A: 180}, false)
+	vector.StrokeLine(screen, float32(contentX), float32(contentY+contentHeaderH), float32(contentX+contentW), float32(contentY+contentHeaderH), 1, color.RGBA{R: 42, G: 54, B: 68, A: 180}, false)
 
 	switch section.id {
 	case sectionGeneral:
-		a.drawSettingsGeneral(screen, snap, contentX, contentY+76, contentW)
+		a.drawSettingsGeneral(screen, snap, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionMouse:
-		a.drawSettingsMouse(screen, snap, contentX, contentY+76, contentW)
+		a.drawSettingsMouse(screen, snap, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionKeyboard:
-		a.drawSettingsKeyboard(screen, snap, contentX, contentY+76, contentW)
+		a.drawSettingsKeyboard(screen, snap, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionVideo:
-		a.drawSettingsVideo(screen, snap, contentX, contentY+76, contentW)
+		a.drawSettingsVideo(screen, snap, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionHardware:
-		a.drawSettingsHardware(screen, contentX, contentY+76, contentW)
+		a.drawSettingsHardware(screen, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionAccess:
-		a.drawSettingsAccess(screen, contentX, contentY+76, contentW)
+		a.drawSettingsAccess(screen, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionAppearance:
-		a.drawSettingsAppearance(screen, contentX, contentY+76, contentW)
+		a.drawSettingsAppearance(screen, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionNetwork:
-		a.drawSettingsNetwork(screen, contentX, contentY+76, contentW)
+		a.drawSettingsNetwork(screen, contentX, contentY+contentHeaderH+18, contentW)
 	case sectionAdvanced:
-		a.drawSettingsAdvanced(screen, contentX, contentY+76, contentW)
+		a.drawSettingsAdvanced(screen, contentX, contentY+contentHeaderH+18, contentW)
 	default:
-		a.drawSettingsPlanned(screen, section, contentX, contentY+76, contentW)
+		a.drawSettingsPlanned(screen, section, contentX, contentY+contentHeaderH+18, contentW)
 	}
 }
 
-func (a *App) settingsPanelHeight(section settingsSectionDef) float64 {
-	switch section.id {
+func (a *App) settingsPanelHeight(section settingsSectionDef, contentW float64) float64 {
+	headerH := 18 + 28 + wrappedTextHeight(section.description, contentW-48, 12) + 18 + 18
+	bodyH := a.settingsSectionBodyHeight(section.id, contentW)
+	return headerH + bodyH + 18
+}
+
+func (a *App) settingsSectionBodyHeight(section settingsSection, w float64) float64 {
+	switch section {
 	case sectionKeyboard:
-		return 474
+		return a.settingsKeyboardBodyHeight(w)
 	case sectionGeneral, sectionHardware, sectionAccess:
-		return 424
+		return a.settingsWideBodyHeight(section, w)
 	case sectionMouse, sectionAdvanced:
-		return 400
+		return a.settingsWideBodyHeight(section, w)
 	case sectionVideo, sectionNetwork, sectionAppearance:
-		return 350
+		return a.settingsWideBodyHeight(section, w)
 	default:
-		return 360
+		return a.settingsPlannedBodyHeight(section, w)
 	}
+}
+
+func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64 {
+	switch section {
+	case sectionGeneral:
+		leftW := (w - 14) * 0.58
+		rightW := w - leftW - 14
+		descH := wrappedTextHeight("Reconnect the native session or force a device reboot.", rightW-32, 12)
+		rightH := 48 + descH + 20 + 30 + 8 + 30 + 18
+		return max(214, rightH)
+	case sectionMouse:
+		leftW := (w - 14) * 0.54
+		rightW := w - leftW - 14
+		descH := wrappedTextHeight("Throttle local wheel bursts before sending them to the device.", rightW-32, 12)
+		rightH := 48 + descH + 20 + 30 + 8 + 30 + 18
+		return max(196, rightH)
+	case sectionVideo:
+		leftW := (w - 14) * 0.48
+		rightW := w - leftW - 14
+		qualityState := a.settingsAction(settingsGroupVideoQuality)
+		leftH := 174.0
+		if qualityState.Pending || qualityState.Error != "" {
+			leftH += wrappedTextHeight(fallbackLabel(qualityState.Error, "Applying…"), leftW-32, 12)
+		}
+		a.mu.RLock()
+		edid := a.ctrl.Snapshot().EDID
+		a.mu.RUnlock()
+		if edid == "" {
+			edid = "Unavailable on current target"
+		}
+		rightH := 48 + wrappedTextHeight(edid, rightW-32, 12) + 24
+		return max(leftH, max(174, rightH))
+	case sectionHardware:
+		a.mu.RLock()
+		state := a.sectionData.Hardware
+		a.mu.RUnlock()
+		leftW := (w - 14) * 0.48
+		rightW := w - leftW - 14
+		leftH := max(220, 82+wrappedTextHeight("Rotate the displayed feed to match the connected panel orientation.", leftW-32, 12)+68)
+		rightH := max(220, 126+wrappedTextHeight(state.USBDevicesSummary, rightW-32, 12)+68)
+		if state.Error != "" {
+			errH := wrappedTextHeight(state.Error, w-32, 12) + 24
+			return max(leftH, max(rightH, 192+errH))
+		}
+		return max(leftH, rightH)
+	case sectionAccess:
+		a.mu.RLock()
+		state := a.sectionData.Access
+		a.mu.RUnlock()
+		leftW := (w - 14) * 0.5
+		rightW := w - leftW - 14
+		leftH := max(220, 156+wrappedTextHeight(fallbackLabel(state.CloudAppURL, "Unavailable"), leftW-32, 12)+24)
+		rightH := max(220, 84+wrappedTextHeight("Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", rightW-32, 12)+66)
+		if state.Error != "" {
+			errH := wrappedTextHeight(state.Error, w-32, 12) + 24
+			return max(leftH, max(rightH, 192+errH))
+		}
+		return max(leftH, rightH)
+	case sectionNetwork:
+		a.mu.RLock()
+		state := a.sectionData.Network
+		a.mu.RUnlock()
+		if state.Error == "" {
+			return 152
+		}
+		return max(152, 124+wrappedTextHeight(state.Error, w-32, 12)+24)
+	case sectionAdvanced:
+		a.mu.RLock()
+		state := a.sectionData.Advanced
+		a.mu.RUnlock()
+		if state.Error == "" {
+			return 182
+		}
+		return max(182, 156+wrappedTextHeight(state.Error, w-32, 12)+24)
+	case sectionAppearance:
+		return max(170, 122+wrappedTextHeight("Pinned is a local preference and keeps the top action bar visible at all times.", w-32, 12)+24)
+	default:
+		return 220
+	}
+}
+
+func (a *App) settingsPlannedBodyHeight(section settingsSection, w float64) float64 {
+	defs := settingsSections(session.Snapshot{})
+	var current settingsSectionDef
+	for _, def := range defs {
+		if def.id == section {
+			current = def
+			break
+		}
+	}
+	bodyH := 46 + wrappedTextHeight(current.description, w-32, 12) + 24 + 24
+	for _, item := range current.items {
+		bodyH += wrappedTextHeight("• "+item, w-40, 12) + 10
+	}
+	bodyH += wrappedTextHeight("This section exists in the upstream product structure but is not currently exposed by this target or the desktop client.", w-32, 12) + 32
+	return max(220, bodyH)
 }
 
 func settingsSidebarHeight(count int) float64 {
@@ -784,11 +888,14 @@ func (a *App) currentSection(sections []settingsSectionDef) settingsSectionDef {
 func (a *App) drawSettingsCard(screen *ebiten.Image, x, y, w, h float64, title, desc string) rect {
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{R: 18, G: 28, B: 40, A: 255}, false)
 	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{R: 54, G: 68, B: 84, A: 180}, false)
+	descY := y + 36
 	if title != "" {
 		drawText(screen, title, x+16, y+14, 15, color.RGBA{R: 240, G: 244, B: 248, A: 255})
+	} else {
+		descY = y + 14
 	}
 	if desc != "" {
-		drawWrappedText(screen, desc, x+16, y+36, w-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+		drawWrappedText(screen, desc, x+16, descY, w-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	}
 	return rect{x: x, y: y, w: w, h: h}
 }
@@ -840,7 +947,8 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 	leftW := (w - 14) * 0.58
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
-	a.drawSettingsCard(screen, x, y, leftW, 214, "Device", "")
+	cardH := a.settingsWideBodyHeight(sectionGeneral, w)
+	a.drawSettingsCard(screen, x, y, leftW, cardH, "Device", "")
 	drawSettingsKeyValue(screen, "Base URL", snap.BaseURL, x+16, y+48, 116)
 	drawSettingsKeyValue(screen, "Phase", string(snap.Phase), x+16, y+74, 116)
 	drawSettingsKeyValue(screen, "Signaling", signalingLabel(snap.SignalingMode), x+16, y+100, 116)
@@ -851,7 +959,7 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 		updateLabel = "Updates available"
 	}
 	drawSettingsKeyValue(screen, "Updates", updateLabel, x+16, y+184, 116)
-	a.drawSettingsCard(screen, rightX, y, rightW, 214, "Actions", "")
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Actions", "")
 	drawWrappedText(screen, "Reconnect the native session or force a device reboot.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	a.drawSettingsAction(screen, "reconnect", reconnectLabel(snap.Phase), rightX+16, y+98, rightW-32, settingsActionVisual{Enabled: true})
 	a.drawSettingsAction(screen, "reboot", "Reboot device", rightX+16, y+136, rightW-32, settingsActionVisual{Enabled: snap.Phase != session.PhaseConnecting})
@@ -861,13 +969,14 @@ func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, 
 	leftW := (w - 14) * 0.54
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
-	a.drawSettingsCard(screen, x, y, leftW, 196, "Pointer", "")
+	cardH := a.settingsWideBodyHeight(sectionMouse, w)
+	a.drawSettingsCard(screen, x, y, leftW, cardH, "Pointer", "")
 	drawSettingsSectionLabel(screen, "Remote mode", x+16, y+48)
 	a.drawSettingsAction(screen, "mouse_absolute", "Absolute", x+16, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative})
 	a.drawSettingsAction(screen, "mouse_relative", "Relative", x+138, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative})
 	drawSettingsSectionLabel(screen, "Local cursor", x+16, y+114)
 	a.drawSettingsAction(screen, "mouse_hide_cursor", "Hide Host Cursor", x+16, y+132, 154, settingsActionVisual{Enabled: true, Active: a.hideCursor})
-	a.drawSettingsCard(screen, rightX, y, rightW, 196, "Wheel", "")
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Wheel", "")
 	drawWrappedText(screen, "Throttle local wheel bursts before sending them to the device.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	a.drawSettingsAction(screen, "scroll_0", "Off", rightX+16, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0})
 	a.drawSettingsAction(screen, "scroll_10", "Low", rightX+92, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond})
@@ -877,16 +986,20 @@ func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, 
 }
 
 func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
-	a.drawSettingsCard(screen, x, y, w, 248, "Keyboard", "Paste/macros layout and a local pressed-key view.")
-	drawText(screen, "Active layout", x+16, y+78, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	cardDesc := "This layout affects paste and keyboard macros. Live typing is sent as physical HID keys."
+	cardH := a.settingsKeyboardBodyHeight(w)
+	a.drawSettingsCard(screen, x, y, w, cardH, "", cardDesc)
+	descH := wrappedTextHeight(cardDesc, w-32, 12)
+	bodyY := y + 18 + descH + 22
+	drawText(screen, "Active layout", x+16, bodyY, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	layout := snap.KeyboardLayout
 	if layout == "" {
 		layout = "en-US"
 	}
 	layoutState := a.settingsAction(settingsGroupKeyboardLayout)
-	drawText(screen, layout, x+118, y+78, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
-	a.drawSettingsAction(screen, "toggle_pressed_keys", "Show Pressed Keys", x+w-174, y+64, 158, settingsActionVisual{Enabled: true, Active: a.showPressedKeys})
-	drawText(screen, "Layout presets", x+16, y+118, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, layout, x+118, bodyY, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	a.drawSettingsAction(screen, "toggle_pressed_keys", "Show Pressed Keys", x+w-174, bodyY-14, 158, settingsActionVisual{Enabled: true, Active: a.showPressedKeys})
+	drawText(screen, "Layout presets", x+16, bodyY+40, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	options := []struct {
 		id    string
 		label string
@@ -901,7 +1014,7 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 		{id: "layout:ja-JP", label: "Japanese"},
 	}
 	rowX := x + 16
-	rowY := y + 142
+	rowY := bodyY + 64
 	for i, option := range options {
 		btnW := 94.0
 		if len(option.label) > 7 {
@@ -919,8 +1032,20 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 			rowY += 38
 		}
 	}
-	a.drawSettingsActionStatus(screen, settingsGroupKeyboardLayout, x+16, y+202, w-32)
-	drawWrappedText(screen, "This layout is used for paste and keyboard macros. Normal live typing is sent as physical HID keys and follows the remote OS keyboard layout.", x+16, y+220, w-32, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	statusY := rowY + 4
+	a.drawSettingsActionStatus(screen, settingsGroupKeyboardLayout, x+16, statusY, w-32)
+	noteY := statusY
+	if layoutState.Pending || layoutState.Error != "" {
+		noteY += wrappedTextHeight(fallbackLabel(layoutState.Error, "Applying…"), w-32, 12) + 8
+	}
+	drawWrappedText(screen, "Make this match the remote OS only for pasted text and macros.", x+16, noteY, w-32, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+}
+
+func (a *App) settingsKeyboardBodyHeight(w float64) float64 {
+	cardDesc := "This layout affects paste and keyboard macros. Live typing is sent as physical HID keys."
+	descH := wrappedTextHeight(cardDesc, w-32, 12)
+	noteH := wrappedTextHeight("Make this match the remote OS only for pasted text and macros.", w-32, 13)
+	return 18 + descH + 22 + 18 + 40 + 30 + 8 + 30 + 18 + 16 + noteH + 16
 }
 
 func (a *App) drawSettingsVideo(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -928,14 +1053,15 @@ func (a *App) drawSettingsVideo(screen *ebiten.Image, snap session.Snapshot, x, 
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
 	qualityState := a.settingsAction(settingsGroupVideoQuality)
-	a.drawSettingsCard(screen, x, y, leftW, 174, "Stream", "")
+	cardH := a.settingsWideBodyHeight(sectionVideo, w)
+	a.drawSettingsCard(screen, x, y, leftW, cardH, "Stream", "")
 	drawSettingsSectionLabel(screen, "Quality preset", x+16, y+48)
 	a.drawSettingsAction(screen, "quality_preset_high", "High", x+16, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "high"), Active: snap.Quality >= 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "high"})
 	a.drawSettingsAction(screen, "quality_preset_medium", "Medium", x+124, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "medium"), Active: snap.Quality >= 0.45 && snap.Quality < 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "medium"})
 	a.drawSettingsAction(screen, "quality_preset_low", "Low", x+232, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "low"), Active: snap.Quality < 0.45, Pending: qualityState.Pending && qualityState.PendingChoice == "low"})
 	drawText(screen, fmt.Sprintf("Current factor %.2f", snap.Quality), x+16, y+120, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	a.drawSettingsActionStatus(screen, settingsGroupVideoQuality, x+16, y+144, leftW-32)
-	a.drawSettingsCard(screen, rightX, y, rightW, 174, "EDID", "")
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "EDID", "")
 	edid := snap.EDID
 	if edid == "" {
 		edid = "Unavailable on current target"
@@ -950,8 +1076,9 @@ func (a *App) drawSettingsHardware(screen *ebiten.Image, x, y, w float64) {
 	leftW := (w - 14) * 0.48
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
-	a.drawSettingsCard(screen, x, y, leftW, 220, "Display", "")
-	a.drawSettingsCard(screen, rightX, y, rightW, 220, "USB", "")
+	cardH := a.settingsWideBodyHeight(sectionHardware, w)
+	a.drawSettingsCard(screen, x, y, leftW, cardH, "Display", "")
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "USB", "")
 	if state.Loading {
 		drawText(screen, "Loading hardware state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
@@ -984,8 +1111,9 @@ func (a *App) drawSettingsAccess(screen *ebiten.Image, x, y, w float64) {
 	leftW := (w - 14) * 0.5
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
-	a.drawSettingsCard(screen, x, y, leftW, 220, "Cloud", "")
-	a.drawSettingsCard(screen, rightX, y, rightW, 220, "TLS", "")
+	cardH := a.settingsWideBodyHeight(sectionAccess, w)
+	a.drawSettingsCard(screen, x, y, leftW, cardH, "Cloud", "")
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "TLS", "")
 	if state.Loading {
 		drawText(screen, "Loading access state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
@@ -1010,7 +1138,8 @@ func (a *App) drawSettingsNetwork(screen *ebiten.Image, x, y, w float64) {
 	a.mu.RLock()
 	state := a.sectionData.Network
 	a.mu.RUnlock()
-	a.drawSettingsCard(screen, x, y, w, 152, "Current state", "")
+	cardH := a.settingsWideBodyHeight(sectionNetwork, w)
+	a.drawSettingsCard(screen, x, y, w, cardH, "Current state", "")
 	if state.Loading {
 		drawText(screen, "Loading network state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
@@ -1027,7 +1156,8 @@ func (a *App) drawSettingsAdvanced(screen *ebiten.Image, x, y, w float64) {
 	a.mu.RLock()
 	state := a.sectionData.Advanced
 	a.mu.RUnlock()
-	a.drawSettingsCard(screen, x, y, w, 182, "Current state", "")
+	cardH := a.settingsWideBodyHeight(sectionAdvanced, w)
+	a.drawSettingsCard(screen, x, y, w, cardH, "Current state", "")
 	if state.Loading {
 		drawText(screen, "Loading advanced state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
@@ -1042,7 +1172,8 @@ func (a *App) drawSettingsAdvanced(screen *ebiten.Image, x, y, w float64) {
 }
 
 func (a *App) drawSettingsAppearance(screen *ebiten.Image, x, y, w float64) {
-	a.drawSettingsCard(screen, x, y, w, 170, "Chrome", "")
+	cardH := a.settingsWideBodyHeight(sectionAppearance, w)
+	a.drawSettingsCard(screen, x, y, w, cardH, "Chrome", "")
 	drawSettingsSectionLabel(screen, "Top bar", x+16, y+48)
 	a.drawSettingsAction(screen, "pin_chrome_off", "Auto-hide", x+136, y+36, 96, settingsActionVisual{Enabled: true, Active: !a.prefs.PinChrome})
 	a.drawSettingsAction(screen, "pin_chrome_on", "Pinned", x+244, y+36, 84, settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})
@@ -1066,7 +1197,8 @@ func boolPtrWord(v *bool) string {
 }
 
 func (a *App) drawSettingsPlanned(screen *ebiten.Image, section settingsSectionDef, x, y, w float64) {
-	a.drawSettingsCard(screen, x, y, w, 220, "Not exposed here", "")
+	cardH := a.settingsPlannedBodyHeight(section.id, w)
+	a.drawSettingsCard(screen, x, y, w, cardH, "Not exposed here", "")
 	drawWrappedText(screen, section.description, x+16, y+46, w-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	drawText(screen, "Current upstream surface", x+16, y+86, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	lineY := y + 110

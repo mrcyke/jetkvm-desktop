@@ -57,11 +57,23 @@ func drawWrappedText(dst *ebiten.Image, value string, x, y, width, size float64,
 	if len(lines) == 0 {
 		return 0
 	}
-	lineHeight := size + 5
+	lineHeight := wrappedLineHeight(size)
 	for i, line := range lines {
 		drawText(dst, line, x, y+(float64(i)*lineHeight), size, clr)
 	}
 	return float64(len(lines)) * lineHeight
+}
+
+func wrappedTextHeight(value string, width, size float64) float64 {
+	lines := wrapText(value, width, size)
+	if len(lines) == 0 {
+		return 0
+	}
+	return float64(len(lines)) * wrappedLineHeight(size)
+}
+
+func wrappedLineHeight(size float64) float64 {
+	return size + 5
 }
 
 func wrapText(value string, width, size float64) []string {
