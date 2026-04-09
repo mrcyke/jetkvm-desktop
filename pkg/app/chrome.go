@@ -475,7 +475,7 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	contentW := min(720, float64(bounds.Dx())-sidebarW-84)
 	panelW := sidebarW + contentW + 44
 	panelW = min(panelW, float64(bounds.Dx()-48))
-	panelH := min(a.settingsPanelHeight(section), float64(bounds.Dy()-56))
+	panelH := min(max(a.settingsPanelHeight(section), settingsSidebarHeight(len(sections))), float64(bounds.Dy()-56))
 
 	panelX := (float64(bounds.Dx()) - panelW) / 2
 	panelY := (float64(bounds.Dy()) - panelH) / 2
@@ -498,13 +498,14 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	drawChromeButton(screen, closeBtn, 1)
 
 	sideY := panelY + 72
+	sideBtnH, sideGap, sideFontSize := settingsSidebarMetrics(panelH, len(sections))
 	for _, section := range sections {
 		btn := chromeButton{
 			id:      "section:" + string(section.id),
 			label:   section.label,
 			enabled: true,
 			active:  a.settingsSection == section.id,
-			rect:    rect{x: panelX + 10, y: sideY, w: sidebarW - 20, h: 30},
+			rect:    rect{x: panelX + 10, y: sideY, w: sidebarW - 20, h: sideBtnH},
 		}
 		a.settingsButtons = append(a.settingsButtons, btn)
 		fill := color.RGBA{R: 18, G: 28, B: 40, A: 255}
@@ -517,8 +518,8 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 		}
 		vector.DrawFilledRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), fill, false)
 		vector.StrokeRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), 1, stroke, false)
-		drawText(screen, section.label, btn.rect.x+10, btn.rect.y+8, 13, textClr)
-		sideY += 36
+		drawText(screen, section.label, btn.rect.x+10, btn.rect.y+(btn.rect.h-sideFontSize)/2-1, sideFontSize, textClr)
+		sideY += sideBtnH + sideGap
 	}
 
 	contentX := panelX + sidebarW + 18
@@ -565,6 +566,40 @@ func (a *App) settingsPanelHeight(section settingsSectionDef) float64 {
 	default:
 		return 360
 	}
+}
+
+func settingsSidebarHeight(count int) float64 {
+	if count <= 0 {
+		return 320
+	}
+	return 72 + float64(count)*30 + float64(count-1)*6 + 18
+}
+
+func settingsSidebarMetrics(panelH float64, count int) (btnH, gap, fontSize float64) {
+	btnH = 30
+	gap = 6
+	fontSize = 13
+	if count <= 0 {
+		return btnH, gap, fontSize
+	}
+	available := panelH - 72 - 18
+	if available <= 0 {
+		return 22, 2, 12
+	}
+	for _, candidateGap := range []float64{6, 4, 2} {
+		candidateH := (available - float64(count-1)*candidateGap) / float64(count)
+		if candidateH >= 30 {
+			return 30, candidateGap, 13
+		}
+		if candidateH >= 24 {
+			return candidateH, candidateGap, 12
+		}
+	}
+	candidateH := (available - float64(count-1)*2) / float64(count)
+	if candidateH < 20 {
+		candidateH = 20
+	}
+	return candidateH, 2, 12
 }
 
 func (a *App) refreshSettingsSection(section settingsSection) {
