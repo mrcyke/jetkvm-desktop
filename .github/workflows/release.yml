@@ -52,6 +52,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download CI artifacts
         env:
           GH_TOKEN: ${{ github.token }}
