@@ -196,7 +196,7 @@ func (a *App) drawPasswordPrompt(screen *ebiten.Image) {
 		targetLabel = a.launcherInput
 	}
 	drawText(screen, "Password Required", panelX+24, panelY+26, 24, color.RGBA{R: 241, G: 245, B: 249, A: 255})
-	drawWrappedText(screen, "Enter the JetKVM local password for "+targetLabel+".", panelX+24, panelY+58, panelW-48, 14, color.RGBA{R: 148, G: 163, B: 184, A: 255})
+	drawWrappedText(screen, targetLabel, panelX+24, panelY+58, panelW-48, 14, color.RGBA{R: 148, G: 163, B: 184, A: 255})
 
 	fieldY := panelY + 112
 	vector.DrawFilledRect(screen, float32(panelX+24), float32(fieldY), float32(panelW-48), 44, color.RGBA{R: 11, G: 16, B: 24, A: 255}, false)
