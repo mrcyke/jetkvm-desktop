@@ -27,9 +27,11 @@ The desktop client still defaults to `connect` when invoked without a subcommand
 
 GitHub Actions builds native release artifacts on:
 
-- Linux
-- macOS
-- Windows
+- Linux amd64
+- Linux aarch64
+- macOS amd64
+- macOS aarch64
+- Windows amd64
 
 Each release contains:
 

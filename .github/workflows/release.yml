@@ -17,18 +17,36 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             name: linux-amd64
             archive_name: jetkvm-desktop-linux-amd64.tar.gz
             client_bin: jetkvm-desktop
-          - os: macos-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            name: linux-aarch64
+            archive_name: jetkvm-desktop-linux-aarch64.tar.gz
+            client_bin: jetkvm-desktop
+            goos: linux
+            goarch: arm64
+          - os: macos-15-intel
             name: macos-amd64
             archive_name: jetkvm-desktop-macos-amd64.tar.gz
             client_bin: jetkvm-desktop
+            goos: darwin
+            goarch: amd64
+          - os: macos-15
+            name: macos-aarch64
+            archive_name: jetkvm-desktop-macos-aarch64.tar.gz
+            client_bin: jetkvm-desktop
+            goos: darwin
+            goarch: arm64
           - os: windows-latest
             name: windows-amd64
             archive_name: jetkvm-desktop-windows-amd64.zip
             client_bin: jetkvm-desktop.exe
+            goos: windows
+            goarch: amd64
 
     steps:
       - name: Checkout
@@ -74,10 +92,16 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
 
       - name: Build release binaries (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist/pkg
           go build -trimpath -ldflags="-s -w" -o "dist/pkg/${{ matrix.client_bin }}" ./cmd/jetkvm-desktop
@@ -87,6 +111,9 @@ jobs:
       - name: Build release binaries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           New-Item -ItemType Directory -Force -Path dist/pkg | Out-Null
           go build -trimpath -ldflags="-s -w" -o "dist/pkg/${{ matrix.client_bin }}" ./cmd/jetkvm-desktop
