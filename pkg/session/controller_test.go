@@ -132,7 +132,7 @@ func TestControllerReceivesVideoAndForwardsInput(t *testing.T) {
 				foundPointer = true
 			case strings.Contains(input.Type, "Mouse"):
 				foundMouse = true
-			case strings.Contains(input.Type, "Wheel"):
+			case input.Type == "rpc.wheelReport":
 				foundWheel = true
 			}
 		}

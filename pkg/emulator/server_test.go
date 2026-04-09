@@ -217,7 +217,7 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 		if input.Type == "hidrpc.Mouse" {
 			foundRelative = true
 		}
-		if input.Type == "hidrpc.Wheel" {
+		if input.Type == "rpc.wheelReport" {
 			foundWheel = true
 		}
 	}
@@ -228,7 +228,7 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 		t.Fatal("expected relative mouse input on hidrpc channel")
 	}
 	if !foundWheel {
-		t.Fatal("expected wheel input on hidrpc channel")
+		t.Fatal("expected wheel input via rpc wheelReport")
 	}
 
 	if err := c.Call(waitCtx, "reboot", map[string]any{"force": false}, nil); err != nil {

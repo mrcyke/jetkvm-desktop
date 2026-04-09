@@ -703,6 +703,13 @@ func (s *session) handleRPC(data []byte) error {
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing factor", nil)
 		}
+	case "wheelReport":
+		if wheelY, ok := req.Params["wheelY"].(float64); ok {
+			s.serverRef.appendInput("rpc", "rpc.wheelReport", fmt.Sprintf("wheelY=%d", int8(wheelY)))
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing wheelY", nil)
+		}
 	case "reboot":
 		resp = jsonrpc.NewResponse(req.ID, true)
 		go func() {
