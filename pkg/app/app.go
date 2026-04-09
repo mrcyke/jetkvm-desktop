@@ -68,6 +68,8 @@ type App struct {
 	showPressedKeys        bool
 	scrollThrottle         time.Duration
 	lastWheelAt            time.Time
+	suppressKeysUntilClear bool
+	suppressMouseUntilUp   bool
 	sectionData            sectionData
 	pasteText              string
 	pasteDelay             uint16
@@ -149,12 +151,14 @@ func (a *App) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		if a.pasteOpen {
 			a.pasteOpen = false
+			a.armOverlayDismissSuppression()
 			a.applyCursorMode()
 			a.revealUIFor(1200 * time.Millisecond)
 			return nil
 		}
 		if a.settingsOpen {
 			a.settingsOpen = false
+			a.armOverlayDismissSuppression()
 			a.revealUIFor(1200 * time.Millisecond)
 			return nil
 		}
@@ -266,6 +270,14 @@ func (a *App) syncKeyboard() {
 		return
 	}
 	rawKeys := inpututil.AppendPressedKeys(nil)
+	if a.suppressKeysUntilClear {
+		if len(rawKeys) == 0 {
+			a.suppressKeysUntilClear = false
+		} else {
+			a.releaseAllKeys(false)
+			return
+		}
+	}
 	keys := make([]input.Key, 0, len(rawKeys))
 	for _, rawKey := range rawKeys {
 		if key, ok := toInputKey(rawKey); ok {
@@ -288,6 +300,15 @@ func (a *App) syncMouse() {
 	}
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
 		buttons |= 2
+	}
+	if a.suppressMouseUntilUp {
+		a.lastX = x
+		a.lastY = y
+		if buttons == 0 {
+			a.suppressMouseUntilUp = false
+			a.lastButtons = 0
+		}
+		return
 	}
 	if a.relative {
 		dx := int8(clamp(float64(x-a.lastX), -127, 127))
@@ -718,6 +739,7 @@ func (a *App) handleClick() {
 	}
 	if a.pasteOpen && !a.pastePanel.contains(x, y) {
 		a.pasteOpen = false
+		a.armOverlayDismissSuppression()
 		a.applyCursorMode()
 		return
 	}
@@ -730,6 +752,7 @@ func (a *App) handleClick() {
 	}
 	if a.settingsOpen && !a.settingsPanel.contains(x, y) {
 		a.settingsOpen = false
+		a.armOverlayDismissSuppression()
 		a.applyCursorMode()
 		return
 	}
@@ -1063,6 +1086,14 @@ func (a *App) releaseAllKeys(send bool) {
 		return
 	}
 	_ = a.keyboard.ReleaseAll()
+}
+
+func (a *App) armOverlayDismissSuppression() {
+	a.releaseAllKeys(false)
+	a.suppressKeysUntilClear = true
+	a.suppressMouseUntilUp = true
+	a.lastButtons = 0
+	a.lastX, a.lastY = ebiten.CursorPosition()
 }
 
 func (a *App) releasePointerState() {

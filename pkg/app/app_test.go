@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"testing"
+
+	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 )
 
 func TestNormalizeBaseURL(t *testing.T) {
@@ -154,5 +156,29 @@ func TestChromeAnchorOrigin(t *testing.T) {
 	x, y = chromeAnchorOrigin("right_center", 1280, 720, 200, 34)
 	if x != 1062 || y != 343 {
 		t.Fatalf("right_center origin = (%v,%v), want (1062,343)", x, y)
+	}
+}
+
+func TestArmOverlayDismissSuppression(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = app.keyboard.Update([]input.Key{input.KeyEscape, input.KeyShiftLeft})
+	app.lastButtons = 1
+	app.armOverlayDismissSuppression()
+
+	if !app.suppressKeysUntilClear {
+		t.Fatal("expected keyboard suppression to be armed")
+	}
+	if !app.suppressMouseUntilUp {
+		t.Fatal("expected mouse suppression to be armed")
+	}
+	if app.lastButtons != 0 {
+		t.Fatalf("lastButtons = %d, want 0", app.lastButtons)
+	}
+	if pressed := app.keyboard.Pressed(); len(pressed) != 0 {
+		t.Fatalf("expected local keyboard state to clear, got %v", pressed)
 	}
 }
