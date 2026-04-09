@@ -272,7 +272,7 @@ func TestNewLauncherStartsInBrowseMode(t *testing.T) {
 	}
 }
 
-func TestConnectFromLauncherKeepsPasswordScreenOpen(t *testing.T) {
+func TestConnectFromLauncherLeavesLauncherWhileConnecting(t *testing.T) {
 	app, err := New(Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -283,8 +283,8 @@ func TestConnectFromLauncherKeepsPasswordScreenOpen(t *testing.T) {
 
 	app.connectFromLauncher("192.168.1.50")
 
-	if !app.launcherOpen {
-		t.Fatal("expected password screen to stay open while reconnecting")
+	if app.launcherOpen {
+		t.Fatal("expected launcher to close while connecting")
 	}
 	if app.pendingTarget != "http://192.168.1.50" {
 		t.Fatalf("pending target = %q, want normalized target", app.pendingTarget)

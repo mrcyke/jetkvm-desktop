@@ -1377,9 +1377,7 @@ func (a *App) connectFromLauncher(target string) {
 	a.launcherError = ""
 	a.pendingTarget = baseURL
 	a.launcherInput = baseURL
-	if a.launcherMode == launcherModeBrowse {
-		a.launcherOpen = false
-	}
+	a.launcherOpen = false
 	a.connectTo(baseURL)
 }
 
