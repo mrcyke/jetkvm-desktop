@@ -145,6 +145,9 @@ func TestClientConnectsAndRPCWorks(t *testing.T) {
 	if err := c.WaitForHID(waitCtx); err != nil {
 		t.Fatal(err)
 	}
+	if c.SignalingMode() != client.SignalingModeWebSocket {
+		t.Fatalf("expected websocket signaling mode, got %q", c.SignalingMode())
+	}
 
 	var pong string
 	if err := c.Call(waitCtx, "ping", nil, &pong); err != nil {

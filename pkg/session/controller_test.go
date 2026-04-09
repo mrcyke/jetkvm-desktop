@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lkarlslund/jetkvm-native/pkg/client"
 	"github.com/lkarlslund/jetkvm-native/pkg/emulator"
 )
 
@@ -29,6 +30,9 @@ func TestControllerConnects(t *testing.T) {
 	}
 	if !snapshot.HIDReady {
 		t.Fatal("expected HID to be ready")
+	}
+	if snapshot.SignalingMode != client.SignalingModeWebSocket {
+		t.Fatalf("expected websocket signaling mode, got %q", snapshot.SignalingMode)
 	}
 }
 

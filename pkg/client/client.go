@@ -26,10 +26,18 @@ type Config struct {
 	RPCTimeout time.Duration
 }
 
+type SignalingMode string
+
+const (
+	SignalingModeLegacyHTTP SignalingMode = "legacy_http"
+	SignalingModeWebSocket  SignalingMode = "websocket"
+)
+
 type LifecycleEvent struct {
 	Type       string
 	Connection webrtc.PeerConnectionState
 	Err        string
+	Signaling  SignalingMode
 }
 
 type Client struct {
@@ -51,6 +59,7 @@ type Client struct {
 	closeCh        chan struct{}
 	signalConn     *websocket.Conn
 	signalMu       sync.Mutex
+	signalMode     SignalingMode
 }
 
 type pendingCall struct {
@@ -81,6 +90,10 @@ func (c *Client) Events() <-chan jsonrpc.Event {
 
 func (c *Client) Lifecycle() <-chan LifecycleEvent {
 	return c.lifecycleCh
+}
+
+func (c *Client) SignalingMode() SignalingMode {
+	return c.signalMode
 }
 
 func (c *Client) Connect(ctx context.Context) error {
@@ -127,6 +140,12 @@ func (c *Client) Connect(ctx context.Context) error {
 	if signalConn != nil {
 		c.signalConn = signalConn
 	}
+	if useLegacySignaling {
+		c.signalMode = SignalingModeLegacyHTTP
+	} else {
+		c.signalMode = SignalingModeWebSocket
+	}
+	c.emitLifecycle(LifecycleEvent{Type: "signaling_mode", Signaling: c.signalMode})
 
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {

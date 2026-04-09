@@ -38,16 +38,17 @@ type Config struct {
 }
 
 type Snapshot struct {
-	Phase      Phase
-	Status     string
-	BaseURL    string
-	DeviceID   string
-	Hostname   string
-	Quality    float64
-	HIDReady   bool
-	VideoReady bool
-	LastError  string
-	RTCState   webrtc.PeerConnectionState
+	Phase         Phase
+	Status        string
+	BaseURL       string
+	DeviceID      string
+	Hostname      string
+	Quality       float64
+	HIDReady      bool
+	VideoReady    bool
+	LastError     string
+	RTCState      webrtc.PeerConnectionState
+	SignalingMode client.SignalingMode
 }
 
 type Controller struct {
@@ -308,6 +309,8 @@ func (c *Controller) watch(ctx context.Context, cl *client.Client) (reason strin
 				return "disconnected", false
 			}
 			switch life.Type {
+			case "signaling_mode":
+				c.setState(func(s *Snapshot) { s.SignalingMode = life.Signaling })
 			case "hid_ready":
 				c.setState(func(s *Snapshot) { s.HIDReady = true })
 			case "video_ready":

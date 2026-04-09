@@ -610,6 +610,7 @@ func (a *App) drawHeader(screen *ebiten.Image, snap session.Snapshot) {
 	chips := []string{
 		"phase: " + string(snap.Phase),
 		"rtc: " + rtcLabel(snap.RTCState),
+		"signal: " + signalingLabel(snap.SignalingMode),
 		boolChip("hid", snap.HIDReady),
 		boolChip("video", snap.VideoReady),
 		fmt.Sprintf("quality: %.0f%%", snap.Quality*100),
@@ -642,6 +643,14 @@ func boolChip(label string, value bool) string {
 
 func rtcLabel(state interface{}) string {
 	return fmt.Sprint(state)
+}
+
+func signalingLabel(mode interface{}) string {
+	label := fmt.Sprint(mode)
+	if label == "" {
+		return "pending"
+	}
+	return label
 }
 
 func trimForFooter(value string) string {
