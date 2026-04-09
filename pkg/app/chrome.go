@@ -1084,7 +1084,7 @@ func (a *App) drawSettingsHardware(screen *ebiten.Image, x, y, w float64) {
 		return
 	}
 	drawSettingsKeyValue(screen, "Rotation", state.DisplayRotation, x+16, y+50, 86)
-	drawWrappedText(screen, "Rotate the displayed feed to match the connected panel orientation.", x+16, y+82, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawWrappedText(screen, "Rotate the JetKVM device display. This does not rotate the remote host video feed.", x+16, y+82, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	rotateState := a.settingsAction(settingsGroupDisplayRotate)
 	a.drawSettingsAction(screen, "rotate_normal", "Normal", x+16, y+150, 88, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "270"), Active: state.DisplayRotation == "270", Pending: rotateState.Pending && rotateState.PendingChoice == "270"})
 	a.drawSettingsAction(screen, "rotate_inverted", "Inverted", x+116, y+150, 98, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "90"), Active: state.DisplayRotation == "90", Pending: rotateState.Pending && rotateState.PendingChoice == "90"})
