@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"time"
@@ -55,6 +56,29 @@ type settingsSectionDef struct {
 	description string
 	available   bool
 	items       []string
+}
+
+type sectionData struct {
+	Access   accessState
+	Hardware hardwareState
+}
+
+type accessState struct {
+	Loading        bool
+	Error          string
+	CloudConnected bool
+	CloudURL       string
+	CloudAppURL    string
+	TLSMode        string
+}
+
+type hardwareState struct {
+	Loading           bool
+	Error             string
+	USBEmulation      *bool
+	USBConfig         string
+	USBDevicesSummary string
+	DisplayRotation   string
 }
 
 func settingsSections(snap session.Snapshot) []settingsSectionDef {
@@ -468,10 +492,84 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 		a.drawSettingsKeyboard(screen, snap, contentX, contentY+74, contentW)
 	case sectionVideo:
 		a.drawSettingsVideo(screen, snap, contentX, contentY+74, contentW)
+	case sectionHardware:
+		a.drawSettingsHardware(screen, contentX, contentY+74, contentW)
+	case sectionAccess:
+		a.drawSettingsAccess(screen, contentX, contentY+74, contentW)
 	case sectionAppearance:
 		a.drawSettingsAppearance(screen, contentX, contentY+74, contentW)
 	default:
 		a.drawSettingsPlanned(screen, section, contentX, contentY+74, contentW)
+	}
+}
+
+func (a *App) refreshSettingsSection(section settingsSection) {
+	switch section {
+	case sectionAccess:
+		a.sectionData.Access.Loading = true
+		a.sectionData.Access.Error = ""
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var cloud struct {
+				Connected bool   `json:"connected"`
+				URL       string `json:"url"`
+				AppURL    string `json:"appUrl"`
+			}
+			var tlsState struct {
+				Mode string `json:"mode"`
+			}
+			access := accessState{Loading: false}
+			if err := a.ctrl.Query(ctx, "getCloudState", nil, &cloud); err == nil {
+				access.CloudConnected = cloud.Connected
+				access.CloudURL = cloud.URL
+				access.CloudAppURL = cloud.AppURL
+			}
+			if err := a.ctrl.Query(ctx, "getTLSState", nil, &tlsState); err == nil {
+				access.TLSMode = tlsState.Mode
+			}
+			if access.CloudURL == "" && access.TLSMode == "" {
+				access.Error = "No access RPC state available on this target"
+			}
+			a.mu.Lock()
+			a.sectionData.Access = access
+			a.mu.Unlock()
+		}()
+	case sectionHardware:
+		a.sectionData.Hardware.Loading = true
+		a.sectionData.Hardware.Error = ""
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var usbEnabled bool
+			var usbConfig struct {
+				VendorID  string `json:"vendor_id"`
+				ProductID string `json:"product_id"`
+			}
+			var usbDevices []any
+			var rotation struct {
+				Rotation string `json:"rotation"`
+			}
+			hw := hardwareState{Loading: false}
+			if err := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); err == nil {
+				hw.USBEmulation = &usbEnabled
+			}
+			if err := a.ctrl.Query(ctx, "getUsbConfig", nil, &usbConfig); err == nil {
+				hw.USBConfig = fmt.Sprintf("%s / %s", usbConfig.VendorID, usbConfig.ProductID)
+			}
+			if err := a.ctrl.Query(ctx, "getUsbDevices", nil, &usbDevices); err == nil {
+				hw.USBDevicesSummary = fmt.Sprintf("%d configured classes", len(usbDevices))
+			}
+			if err := a.ctrl.Query(ctx, "getDisplayRotation", nil, &rotation); err == nil {
+				hw.DisplayRotation = rotation.Rotation
+			}
+			if hw.USBEmulation == nil && hw.USBConfig == "" && hw.DisplayRotation == "" {
+				hw.Error = "No hardware RPC state available on this target"
+			}
+			a.mu.Lock()
+			a.sectionData.Hardware = hw
+			a.mu.Unlock()
+		}()
 	}
 }
 
@@ -605,11 +703,66 @@ func (a *App) drawSettingsVideo(screen *ebiten.Image, snap session.Snapshot, x, 
 	drawText(screen, "EDID write support and image tuning controls remain planned for a later native pass.", x+16, y+202, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 
+func (a *App) drawSettingsHardware(screen *ebiten.Image, x, y, w float64) {
+	a.mu.RLock()
+	state := a.sectionData.Hardware
+	a.mu.RUnlock()
+	a.drawSettingsCard(screen, x, y, w, 208, "Hardware", "The web UI uses this section for display, USB, and power settings. The native client now surfaces the hardware state that is already reachable through the current RPC surface.")
+	if state.Loading {
+		drawText(screen, "Loading hardware state…", x+16, y+82, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+		return
+	}
+	drawText(screen, "USB Emulation", x+16, y+82, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	if state.USBEmulation != nil {
+		drawText(screen, boolWord(*state.USBEmulation), x+128, y+82, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	} else {
+		drawText(screen, "Unavailable", x+128, y+82, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	}
+	drawText(screen, "USB Config", x+16, y+108, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.USBConfig, "Unavailable"), x+128, y+108, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, "USB Devices", x+16, y+134, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.USBDevicesSummary, "Unavailable"), x+128, y+134, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, "Display Rotation", x+16, y+160, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.DisplayRotation, "Unavailable"), x+128, y+160, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	if state.Error != "" {
+		drawText(screen, state.Error, x+16, y+190, 13, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+	}
+}
+
+func (a *App) drawSettingsAccess(screen *ebiten.Image, x, y, w float64) {
+	a.mu.RLock()
+	state := a.sectionData.Access
+	a.mu.RUnlock()
+	a.drawSettingsCard(screen, x, y, w, 208, "Access", "The web UI uses this section for local auth, TLS, and cloud adoption. The native client now shows the access state that the current target exposes.")
+	if state.Loading {
+		drawText(screen, "Loading access state…", x+16, y+82, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+		return
+	}
+	drawText(screen, "Cloud Connected", x+16, y+82, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, boolWord(state.CloudConnected), x+136, y+82, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, "Cloud API", x+16, y+108, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.CloudURL, "Unavailable"), x+136, y+108, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, "Cloud App", x+16, y+134, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.CloudAppURL, "Unavailable"), x+136, y+134, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, "TLS Mode", x+16, y+160, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawText(screen, fallbackLabel(state.TLSMode, "Unavailable"), x+136, y+160, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	if state.Error != "" {
+		drawText(screen, state.Error, x+16, y+190, 13, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+	}
+}
+
 func (a *App) drawSettingsAppearance(screen *ebiten.Image, x, y, w float64) {
 	a.drawSettingsCard(screen, x, y, w, 154, "Appearance", "The web UI only exposes theme selection here. In the native client this section is where chrome density and auto-hide behavior belong.")
 	drawText(screen, "Current behavior", x+16, y+78, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	drawText(screen, "Top icon bar fades away when idle and returns when the pointer moves near the top edge.", x+136, y+78, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	drawText(screen, "Planned next: density presets and optional persistent chrome mode.", x+16, y+112, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+}
+
+func boolWord(v bool) string {
+	if v {
+		return "Enabled"
+	}
+	return "Disabled"
 }
 
 func (a *App) drawSettingsPlanned(screen *ebiten.Image, section settingsSectionDef, x, y, w float64) {

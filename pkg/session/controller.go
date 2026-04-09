@@ -448,6 +448,10 @@ func (c *Controller) call(ctx context.Context, method string, params map[string]
 	return current.Call(ctx, method, params, out)
 }
 
+func (c *Controller) Query(ctx context.Context, method string, params map[string]any, out any) error {
+	return c.call(ctx, method, params, out)
+}
+
 func backoff(attempt int, base, max time.Duration) time.Duration {
 	d := base << attempt
 	if d > max {

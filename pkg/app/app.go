@@ -54,6 +54,7 @@ type App struct {
 	showPressedKeys bool
 	scrollThrottle  time.Duration
 	lastWheelAt     time.Time
+	sectionData     sectionData
 }
 
 func New(cfg Config) (*App, error) {
@@ -608,6 +609,7 @@ func (a *App) invokeAction(id string) {
 	default:
 		if len(id) > 8 && id[:8] == "section:" {
 			a.settingsSection = settingsSection(id[8:])
+			a.refreshSettingsSection(a.settingsSection)
 		}
 	}
 }
