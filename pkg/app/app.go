@@ -26,22 +26,29 @@ type App struct {
 	cfg  Config
 	ctrl *session.Controller
 
-	mu          sync.RWMutex
-	lastImg     *ebiten.Image
-	lastFrameAt time.Time
-	keyboard    *input.Keyboard
-	lastX       int
-	lastY       int
-	lastButtons byte
-	lastPhase   session.Phase
-	lastTitle   string
-	relative    bool
-	buttons     []button
-	renderRect  rect
-	focused     bool
-	lastWidth   int
-	lastHeight  int
-	resizeUntil time.Time
+	mu              sync.RWMutex
+	lastImg         *ebiten.Image
+	lastFrameAt     time.Time
+	keyboard        *input.Keyboard
+	lastX           int
+	lastY           int
+	lastButtons     byte
+	lastPhase       session.Phase
+	lastTitle       string
+	relative        bool
+	renderRect      rect
+	focused         bool
+	lastWidth       int
+	lastHeight      int
+	resizeUntil     time.Time
+	lastUIX         int
+	lastUIY         int
+	uiVisibleUntil  time.Time
+	settingsOpen    bool
+	settingsSection settingsSection
+	chromeButtons   []chromeButton
+	settingsButtons []chromeButton
+	settingsPanel   rect
 }
 
 func New(cfg Config) (*App, error) {
@@ -52,11 +59,13 @@ func New(cfg Config) (*App, error) {
 		Reconnect:  true,
 	})
 	return &App{
-		cfg:       cfg,
-		ctrl:      ctrl,
-		keyboard:  input.NewKeyboard(),
-		lastPhase: session.PhaseIdle,
-		focused:   true,
+		cfg:             cfg,
+		ctrl:            ctrl,
+		keyboard:        input.NewKeyboard(),
+		lastPhase:       session.PhaseIdle,
+		focused:         true,
+		uiVisibleUntil:  time.Now().Add(3 * time.Second),
+		settingsSection: sectionGeneral,
 	}, nil
 }
 
@@ -65,11 +74,17 @@ func (a *App) Start(ctx context.Context) {
 }
 
 func (a *App) Update() error {
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		if a.settingsOpen {
+			a.settingsOpen = false
+			a.revealUIFor(1200 * time.Millisecond)
+			return nil
+		}
 		return ebiten.Termination
 	}
 	a.syncSessionState()
 	a.syncWindowTitle()
+	a.syncChromeVisibility()
 	nowFocused := ebiten.IsFocused()
 	if a.focused && !nowFocused {
 		a.releaseAllKeys(true)
@@ -123,11 +138,7 @@ func (a *App) syncVideoFrame() {
 func (a *App) Draw(screen *ebiten.Image) {
 	snap := a.ctrl.Snapshot()
 	screen.Fill(color.RGBA{R: 9, G: 14, B: 22, A: 255})
-	vector.DrawFilledRect(screen, 0, 0, float32(screen.Bounds().Dx()), 52, color.RGBA{R: 15, G: 26, B: 42, A: 255}, false)
-	vector.DrawFilledRect(screen, 0, float32(screen.Bounds().Dy()-38), float32(screen.Bounds().Dx()), 38, color.RGBA{R: 15, G: 26, B: 42, A: 255}, false)
-
-	videoArea := image.Rect(16, 64, screen.Bounds().Dx()-16, screen.Bounds().Dy()-52)
-	a.buttons = layoutButtons(screen.Bounds().Dx(), snap, a.relative)
+	videoArea := image.Rect(8, 8, screen.Bounds().Dx()-8, screen.Bounds().Dy()-8)
 	a.mu.RLock()
 	img := a.lastImg
 	a.mu.RUnlock()
@@ -152,12 +163,11 @@ func (a *App) Draw(screen *ebiten.Image) {
 	} else {
 		a.renderRect = rect{}
 	}
-	a.drawHeader(screen, snap)
-	for _, btn := range a.buttons {
-		drawButton(screen, btn)
-	}
-	a.drawFooter(screen, snap)
+	a.drawTopBar(screen, snap)
+	a.drawStatusFooter(screen, snap)
 	a.drawOverlay(screen, snap, img != nil)
+	a.drawHint(screen)
+	a.drawSettingsOverlay(screen, snap)
 }
 
 func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -170,7 +180,7 @@ func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (a *App) syncKeyboard() {
-	if !a.focused || a.ctrl.Snapshot().Phase != session.PhaseConnected {
+	if !a.focused || a.settingsOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
 	rawKeys := inpututil.AppendPressedKeys(nil)
@@ -186,7 +196,7 @@ func (a *App) syncKeyboard() {
 }
 
 func (a *App) syncMouse() {
-	if a.ctrl.Snapshot().Phase != session.PhaseConnected {
+	if a.settingsOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
 	x, y := ebiten.CursorPosition()
@@ -471,32 +481,85 @@ func (a *App) adjustStreamQuality(delta float64) {
 	}(next)
 }
 
+func (a *App) setMouseRelative(relative bool) {
+	a.relative = relative
+	if a.relative {
+		ebiten.SetCursorMode(ebiten.CursorModeCaptured)
+	} else {
+		ebiten.SetCursorMode(ebiten.CursorModeVisible)
+	}
+	a.lastX, a.lastY = ebiten.CursorPosition()
+	a.revealUIFor(1200 * time.Millisecond)
+}
+
 func (a *App) handleClick() {
 	x, y := ebiten.CursorPosition()
-	for _, btn := range a.buttons {
+	for _, btn := range a.settingsButtons {
 		if !btn.enabled || !btn.rect.contains(x, y) {
 			continue
 		}
-		switch btn.id {
-		case "reconnect":
-			a.releaseAllKeys(true)
-			a.ctrl.ReconnectNow()
-		case "mouse":
-			a.relative = !a.relative
-			if a.relative {
-				ebiten.SetCursorMode(ebiten.CursorModeCaptured)
-			} else {
-				ebiten.SetCursorMode(ebiten.CursorModeVisible)
-			}
-			a.lastX, a.lastY = ebiten.CursorPosition()
-		case "quality_down":
-			a.adjustStreamQuality(-0.05)
-		case "quality_up":
-			a.adjustStreamQuality(+0.05)
-		case "reboot":
-			_ = a.ctrl.Reboot()
-		}
+		a.invokeAction(btn.id)
 		return
+	}
+	if a.settingsOpen && !a.settingsPanel.contains(x, y) {
+		a.settingsOpen = false
+		return
+	}
+	for _, btn := range a.chromeButtons {
+		if !btn.enabled || !btn.rect.contains(x, y) {
+			continue
+		}
+		a.invokeAction(btn.id)
+		return
+	}
+}
+
+func (a *App) invokeAction(id string) {
+	switch id {
+	case "reconnect":
+		a.releaseAllKeys(true)
+		a.ctrl.ReconnectNow()
+	case "mouse":
+		a.setMouseRelative(!a.relative)
+	case "mouse_absolute":
+		a.setMouseRelative(false)
+	case "mouse_relative":
+		a.setMouseRelative(true)
+	case "quality_down":
+		a.adjustStreamQuality(-0.05)
+	case "quality_up":
+		a.adjustStreamQuality(+0.05)
+	case "quality_preset_high":
+		_ = a.ctrl.SetQuality(1.0)
+	case "quality_preset_medium":
+		_ = a.ctrl.SetQuality(0.5)
+	case "quality_preset_low":
+		_ = a.ctrl.SetQuality(0.1)
+	case "reboot":
+		_ = a.ctrl.Reboot()
+	case "settings":
+		a.settingsOpen = !a.settingsOpen
+		a.revealUIFor(1200 * time.Millisecond)
+	case "settings_close":
+		a.settingsOpen = false
+	default:
+		if len(id) > 8 && id[:8] == "section:" {
+			a.settingsSection = settingsSection(id[8:])
+		}
+	}
+}
+
+func (a *App) syncChromeVisibility() {
+	x, y := ebiten.CursorPosition()
+	if x != a.lastUIX || y != a.lastUIY {
+		if y <= 72 || a.settingsOpen {
+			a.revealUIFor(1600 * time.Millisecond)
+		}
+		a.lastUIX = x
+		a.lastUIY = y
+	}
+	if a.settingsOpen {
+		a.revealUIFor(500 * time.Millisecond)
 	}
 }
 
@@ -518,6 +581,7 @@ func (a *App) syncSessionState() {
 	if phase == session.PhaseConnected && a.lastPhase != session.PhaseConnected {
 		a.lastX, a.lastY = ebiten.CursorPosition()
 		a.lastButtons = 0
+		a.revealUIFor(2 * time.Second)
 	}
 	a.lastPhase = phase
 }
@@ -606,54 +670,6 @@ func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo 
 	}
 }
 
-func (a *App) drawHeader(screen *ebiten.Image, snap session.Snapshot) {
-	label := "jetkvm-client"
-	if snap.DeviceID != "" {
-		label = snap.DeviceID
-	} else if snap.Hostname != "" {
-		label = snap.Hostname
-	}
-	drawText(screen, label, 16, 8, 20, color.RGBA{R: 240, G: 244, B: 248, A: 255})
-	drawText(screen, snap.BaseURL, 16, 31, 13, color.RGBA{R: 150, G: 162, B: 176, A: 255})
-
-	chips := []string{
-		"phase: " + string(snap.Phase),
-		"rtc: " + rtcLabel(snap.RTCState),
-		"signal: " + signalingLabel(snap.SignalingMode),
-		boolChip("hid", snap.HIDReady),
-		boolChip("video", snap.VideoReady),
-		fmt.Sprintf("quality: %.0f%%", snap.Quality*100),
-		"mouse: " + a.mouseModeLabel(),
-	}
-	x := 260
-	for _, chip := range chips {
-		drawText(screen, chip, float64(x), 17, 13, color.RGBA{R: 192, G: 204, B: 214, A: 255})
-		w, _ := measureText(chip, 13)
-		x += int(w) + 18
-	}
-}
-
-func (a *App) drawFooter(screen *ebiten.Image, snap session.Snapshot) {
-	left := "F8 toggle mouse mode  F5 reboot  +/- stream quality"
-	if snap.Phase == session.PhaseConnected {
-		left = left + "  click inside the video to control the host"
-	}
-	footerY := float64(screen.Bounds().Dy() - 28)
-	drawText(screen, left, 16, footerY, 13, color.RGBA{R: 168, G: 178, B: 188, A: 255})
-	if snap.LastError != "" && snap.Phase != session.PhaseConnected {
-		msg := trimForFooter(snap.LastError)
-		w, _ := measureText(msg, 13)
-		drawText(screen, msg, float64(screen.Bounds().Dx())-w-16, footerY, 13, color.RGBA{R: 220, G: 132, B: 132, A: 255})
-	}
-}
-
-func boolChip(label string, value bool) string {
-	if value {
-		return label + ": ready"
-	}
-	return label + ": pending"
-}
-
 func rtcLabel(state interface{}) string {
 	return fmt.Sprint(state)
 }
@@ -710,61 +726,6 @@ type button struct {
 	label   string
 	enabled bool
 	rect    rect
-}
-
-func layoutButtons(width int, snap session.Snapshot, relative bool) []button {
-	canAct := snap.Phase == session.PhaseConnected || snap.Phase == session.PhaseDisconnected || snap.Phase == session.PhaseReconnecting
-	defs := []struct {
-		id      string
-		label   string
-		w       float64
-		enabled bool
-	}{
-		{id: "reconnect", label: reconnectLabel(snap.Phase), w: 92, enabled: true},
-		{id: "mouse", label: mouseButtonLabel(relative), w: 104, enabled: snap.Phase == session.PhaseConnected},
-		{id: "quality_down", label: "Quality -", w: 82, enabled: snap.Phase == session.PhaseConnected},
-		{id: "quality_up", label: "Quality +", w: 82, enabled: snap.Phase == session.PhaseConnected},
-		{id: "reboot", label: "Reboot", w: 76, enabled: canAct},
-	}
-	buttons := make([]button, 0, len(defs))
-	x := float64(width) - 24
-	for i := len(defs) - 1; i >= 0; i-- {
-		x -= defs[i].w
-		buttons = append([]button{{
-			id:      defs[i].id,
-			label:   defs[i].label,
-			enabled: defs[i].enabled,
-			rect: rect{
-				x: x,
-				y: 8,
-				w: defs[i].w,
-				h: 26,
-			},
-		}}, buttons...)
-		x -= 8
-	}
-	return buttons
-}
-
-func drawButton(screen *ebiten.Image, btn button) {
-	fill := color.RGBA{R: 28, G: 48, B: 72, A: 255}
-	if !btn.enabled {
-		fill = color.RGBA{R: 22, G: 30, B: 42, A: 255}
-	}
-	vector.DrawFilledRect(screen, float32(btn.rect.x), float32(btn.rect.y), float32(btn.rect.w), float32(btn.rect.h), fill, false)
-	clr := color.RGBA{R: 236, G: 241, B: 245, A: 255}
-	if !btn.enabled {
-		clr = color.RGBA{R: 118, G: 130, B: 142, A: 255}
-	}
-	w, h := measureText(btn.label, 13)
-	drawText(
-		screen,
-		btn.label,
-		btn.rect.x+((btn.rect.w-w)/2),
-		btn.rect.y+((btn.rect.h-h)/2)-1,
-		13,
-		clr,
-	)
 }
 
 func reconnectLabel(phase session.Phase) string {
