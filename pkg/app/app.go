@@ -67,7 +67,16 @@ type App struct {
 	pasteInvalid    string
 	pasteError      string
 	stats           client.StatsSnapshot
+	statsHistory    []statsPoint
 	lastStatsPoll   time.Time
+}
+
+type statsPoint struct {
+	At              time.Time
+	BitrateKbps     float64
+	JitterMs        float64
+	RoundTripMs     float64
+	FramesPerSecond float64
 }
 
 func New(cfg Config) (*App, error) {

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.design/x/clipboard"
 
+	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
 )
@@ -29,7 +31,27 @@ func (a *App) syncStats() {
 		return
 	}
 	a.stats = a.ctrl.Stats()
+	a.appendStatsHistory(a.stats, time.Now())
 	a.lastStatsPoll = time.Now()
+}
+
+func (a *App) appendStatsHistory(stats client.StatsSnapshot, now time.Time) {
+	a.statsHistory = append(a.statsHistory, statsPoint{
+		At:              now,
+		BitrateKbps:     stats.BitrateKbps,
+		JitterMs:        stats.JitterMs,
+		RoundTripMs:     stats.RoundTripMs,
+		FramesPerSecond: stats.FramesPerSecond,
+	})
+	cutoff := now.Add(-2 * time.Minute)
+	trimmed := a.statsHistory[:0]
+	for _, sample := range a.statsHistory {
+		if sample.At.Before(cutoff) {
+			continue
+		}
+		trimmed = append(trimmed, sample)
+	}
+	a.statsHistory = trimmed
 }
 
 func (a *App) syncPasteInput() {
@@ -127,6 +149,32 @@ func (a *App) drawStatsOverlay(screen *ebiten.Image) {
 	}
 
 	const pad = 16.0
+	graphs := []graphMetric{
+		{
+			Title:  "Bitrate",
+			Unit:   "kbps",
+			Value:  stats.BitrateKbps,
+			Series: statsSeries(a.statsHistory, func(p statsPoint) float64 { return p.BitrateKbps }),
+		},
+		{
+			Title:  "Jitter",
+			Unit:   "ms",
+			Value:  stats.JitterMs,
+			Series: statsSeries(a.statsHistory, func(p statsPoint) float64 { return p.JitterMs }),
+		},
+		{
+			Title:  "RTT",
+			Unit:   "ms",
+			Value:  stats.RoundTripMs,
+			Series: statsSeries(a.statsHistory, func(p statsPoint) float64 { return p.RoundTripMs }),
+		},
+		{
+			Title:  "Decode FPS",
+			Unit:   "fps",
+			Value:  stats.FramesPerSecond,
+			Series: statsSeries(a.statsHistory, func(p statsPoint) float64 { return p.FramesPerSecond }),
+		},
+	}
 	w := 0.0
 	for _, line := range lines {
 		lineW, _ := measureText(line, 12)
@@ -134,8 +182,12 @@ func (a *App) drawStatsOverlay(screen *ebiten.Image) {
 			w = lineW
 		}
 	}
-	boxW := w + pad*2
-	boxH := float64(len(lines))*18 + pad*2
+	graphAreaW := 320.0
+	if w > graphAreaW {
+		graphAreaW = w
+	}
+	boxW := graphAreaW + pad*2
+	boxH := float64(len(lines))*18 + pad*2 + 18 + float64(len(graphs))*72
 	x := float64(screen.Bounds().Dx()) - boxW - 16
 	y := 58.0
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(boxW), float32(boxH), color.RGBA{R: 9, G: 14, B: 22, A: 224}, false)
@@ -143,6 +195,110 @@ func (a *App) drawStatsOverlay(screen *ebiten.Image) {
 	drawText(screen, "Connection Stats", x+pad, y+12, 14, color.RGBA{R: 240, G: 244, B: 248, A: 255})
 	for i, line := range lines {
 		drawText(screen, line, x+pad, y+34+float64(i*18), 12, color.RGBA{R: 210, G: 218, B: 226, A: 255})
+	}
+	graphY := y + 34 + float64(len(lines))*18 + 18
+	for _, graph := range graphs {
+		a.drawStatsGraph(screen, x+pad, graphY, boxW-pad*2, 58, graph)
+		graphY += 72
+	}
+}
+
+type graphMetric struct {
+	Title  string
+	Unit   string
+	Value  float64
+	Series []float64
+}
+
+func statsSeries(history []statsPoint, pick func(statsPoint) float64) []float64 {
+	values := make([]float64, 0, len(history))
+	for _, sample := range history {
+		values = append(values, pick(sample))
+	}
+	return values
+}
+
+func graphDomain(values []float64) (float64, float64) {
+	maxValue := 0.0
+	for _, value := range values {
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	if maxValue <= 0 {
+		return 0, 1
+	}
+	return 0, niceCeil(maxValue * 1.1)
+}
+
+func niceCeil(value float64) float64 {
+	if value <= 0 {
+		return 1
+	}
+	magnitude := math.Pow(10, math.Floor(math.Log10(value)))
+	normalized := value / magnitude
+	switch {
+	case normalized <= 1:
+		return 1 * magnitude
+	case normalized <= 2:
+		return 2 * magnitude
+	case normalized <= 5:
+		return 5 * magnitude
+	default:
+		return 10 * magnitude
+	}
+}
+
+func formatGraphValue(value float64, unit string) string {
+	switch unit {
+	case "fps":
+		return fmt.Sprintf("%.1f %s", value, unit)
+	default:
+		return fmt.Sprintf("%.0f %s", value, unit)
+	}
+}
+
+func (a *App) drawStatsGraph(screen *ebiten.Image, x, y, w, h float64, metric graphMetric) {
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{R: 15, G: 23, B: 34, A: 220}, false)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{R: 62, G: 80, B: 96, A: 180}, false)
+
+	drawText(screen, metric.Title, x+10, y+10, 12, color.RGBA{R: 240, G: 244, B: 248, A: 255})
+	drawText(screen, formatGraphValue(metric.Value, metric.Unit), x+w-88, y+10, 12, color.RGBA{R: 166, G: 200, B: 255, A: 255})
+
+	chartX := x + 10
+	chartY := y + 24
+	chartW := w - 20
+	chartH := h - 32
+	vector.StrokeRect(screen, float32(chartX), float32(chartY), float32(chartW), float32(chartH), 1, color.RGBA{R: 46, G: 60, B: 75, A: 120}, false)
+
+	minY, maxY := graphDomain(metric.Series)
+	for i := 1; i < 4; i++ {
+		yy := chartY + chartH*(float64(i)/4)
+		vector.StrokeLine(screen, float32(chartX), float32(yy), float32(chartX+chartW), float32(yy), 1, color.RGBA{R: 34, G: 46, B: 58, A: 120}, false)
+	}
+	if len(metric.Series) < 2 {
+		return
+	}
+	prevX := chartX
+	prevY := chartY + chartH
+	for i, value := range metric.Series {
+		norm := 0.0
+		if maxY > minY {
+			norm = (value - minY) / (maxY - minY)
+		}
+		if norm < 0 {
+			norm = 0
+		}
+		if norm > 1 {
+			norm = 1
+		}
+		px := chartX + (float64(i)/float64(len(metric.Series)-1))*chartW
+		py := chartY + chartH - norm*chartH
+		if i > 0 {
+			vector.StrokeLine(screen, float32(prevX), float32(prevY), float32(px), float32(py), 2, color.RGBA{R: 108, G: 184, B: 255, A: 255}, false)
+		}
+		prevX = px
+		prevY = py
 	}
 }
 
