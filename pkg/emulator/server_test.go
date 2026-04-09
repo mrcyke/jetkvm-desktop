@@ -302,8 +302,71 @@ func TestClientRPCTimeoutWhenMethodDropped(t *testing.T) {
 	}
 
 	var pong string
-	if err := c.Call(waitCtx, "ping", nil, &pong); err == nil || !strings.Contains(err.Error(), "rpc timeout") {
+	if err := c.Call(context.Background(), "ping", nil, &pong); err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+}
+
+func TestClientCallRespectsCallerDeadlineOverride(t *testing.T) {
+	srv, err := NewServer(Config{
+		ListenAddr: "127.0.0.1:0",
+		AuthMode:   AuthModePassword,
+		Password:   "secret",
+		Faults: FaultConfig{
+			DropRPCMethod: "ping",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
+		}
+	})
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
+	}()
+	waitForBaseURL(t, srv)
+
+	c, err := client.New(client.Config{
+		BaseURL:    srv.BaseURL(),
+		Password:   "secret",
+		RPCTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer waitCancel()
+	if err := c.WaitForHID(waitCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	callCtx, callCancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer callCancel()
+	start := time.Now()
+	var pong string
+	err = c.Call(callCtx, "ping", nil, &pong)
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
 		t.Fatalf("expected rpc timeout, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Fatalf("expected caller deadline to override default timeout, call ended after %v", elapsed)
 	}
 }
 

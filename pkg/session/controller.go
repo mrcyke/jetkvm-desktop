@@ -30,12 +30,13 @@ const (
 )
 
 type Config struct {
-	BaseURL       string
-	Password      string
-	RPCTimeout    time.Duration
-	Reconnect     bool
-	ReconnectBase time.Duration
-	ReconnectMax  time.Duration
+	BaseURL         string
+	Password        string
+	RPCTimeout      time.Duration
+	MutationTimeout time.Duration
+	Reconnect       bool
+	ReconnectBase   time.Duration
+	ReconnectMax    time.Duration
 }
 
 type Snapshot struct {
@@ -73,6 +74,9 @@ type Controller struct {
 func New(cfg Config) *Controller {
 	if cfg.RPCTimeout == 0 {
 		cfg.RPCTimeout = 5 * time.Second
+	}
+	if cfg.MutationTimeout == 0 {
+		cfg.MutationTimeout = 20 * time.Second
 	}
 	if cfg.ReconnectBase == 0 {
 		cfg.ReconnectBase = 500 * time.Millisecond
@@ -162,11 +166,11 @@ func (c *Controller) ReconnectNow() {
 }
 
 func (c *Controller) Reboot() error {
-	return c.call(context.Background(), "reboot", map[string]any{"force": false}, nil)
+	return c.mutate("reboot", map[string]any{"force": false}, nil)
 }
 
 func (c *Controller) SetQuality(value float64) error {
-	if err := c.call(context.Background(), "setStreamQualityFactor", map[string]any{"factor": value}, nil); err != nil {
+	if err := c.mutate("setStreamQualityFactor", map[string]any{"factor": value}, nil); err != nil {
 		return err
 	}
 	c.setState(func(s *Snapshot) {
@@ -179,7 +183,7 @@ func (c *Controller) SetKeyboardLayout(layout string) error {
 	if layout == "" {
 		return errors.New("keyboard layout is required")
 	}
-	if err := c.call(context.Background(), "setKeyboardLayout", map[string]any{"layout": layout}, nil); err != nil {
+	if err := c.mutate("setKeyboardLayout", map[string]any{"layout": layout}, nil); err != nil {
 		return err
 	}
 	c.setState(func(s *Snapshot) {
@@ -192,7 +196,7 @@ func (c *Controller) SetTLSMode(mode string) error {
 	if mode == "" {
 		return errors.New("tls mode is required")
 	}
-	return c.call(context.Background(), "setTLSState", map[string]any{
+	return c.mutate("setTLSState", map[string]any{
 		"state": map[string]any{"mode": mode},
 	}, nil)
 }
@@ -201,20 +205,20 @@ func (c *Controller) SetDisplayRotation(rotation string) error {
 	if rotation == "" {
 		return errors.New("display rotation is required")
 	}
-	return c.call(context.Background(), "setDisplayRotation", map[string]any{
+	return c.mutate("setDisplayRotation", map[string]any{
 		"params": map[string]any{"rotation": rotation},
 	}, nil)
 }
 
 func (c *Controller) SetUSBEmulation(enabled bool) error {
-	return c.call(context.Background(), "setUsbEmulationState", map[string]any{"enabled": enabled}, nil)
+	return c.mutate("setUsbEmulationState", map[string]any{"enabled": enabled}, nil)
 }
 
 func (c *Controller) SetNetworkSettings(settings map[string]any) error {
 	if len(settings) == 0 {
 		return errors.New("network settings are required")
 	}
-	return c.call(context.Background(), "setNetworkSettings", map[string]any{"settings": settings}, nil)
+	return c.mutate("setNetworkSettings", map[string]any{"settings": settings}, nil)
 }
 
 func (c *Controller) SendKeypress(key byte, press bool) error {
@@ -559,6 +563,10 @@ func (c *Controller) call(ctx context.Context, method string, params map[string]
 		return errors.New("client not connected")
 	}
 	return current.Call(ctx, method, params, out)
+}
+
+func (c *Controller) mutate(method string, params map[string]any, out any) error {
+	return c.call(withTimeout(context.Background(), c.cfg.MutationTimeout), method, params, out)
 }
 
 func (c *Controller) Query(ctx context.Context, method string, params map[string]any, out any) error {

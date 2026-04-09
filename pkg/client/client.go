@@ -304,6 +304,11 @@ func (c *Client) Call(ctx context.Context, method string, params map[string]any,
 	if c.rpcDC == nil {
 		return fmt.Errorf("rpc data channel not ready")
 	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.cfg.RPCTimeout)
+		defer cancel()
+	}
 
 	id := fmt.Sprintf("rpc-%d", c.requestCounter.Add(1))
 	req := jsonrpc.NewRequest(method, params, id)
@@ -320,14 +325,9 @@ func (c *Client) Call(ctx context.Context, method string, params map[string]any,
 		return err
 	}
 
-	timeout := time.NewTimer(c.cfg.RPCTimeout)
-	defer timeout.Stop()
-
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-timeout.C:
-		return fmt.Errorf("rpc timeout for %s", method)
 	case resp := <-respCh:
 		if resp.Error != nil {
 			return fmt.Errorf("%s: %s", method, resp.Error.Message)
