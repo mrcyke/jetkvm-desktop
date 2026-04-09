@@ -147,9 +147,6 @@ func (a *App) Start(ctx context.Context) {
 
 func (a *App) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		if a.launcherOpen {
-			return ebiten.Termination
-		}
 		if a.pasteOpen {
 			a.pasteOpen = false
 			a.applyCursorMode()
@@ -161,7 +158,6 @@ func (a *App) Update() error {
 			a.revealUIFor(1200 * time.Millisecond)
 			return nil
 		}
-		return ebiten.Termination
 	}
 	if a.launcherOpen {
 		a.syncDiscovery()
@@ -187,19 +183,6 @@ func (a *App) Update() error {
 		}
 	}
 	a.focused = nowFocused
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
-		a.setMouseRelative(!a.relative)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
-		_ = a.ctrl.Reboot()
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
-		a.adjustStreamQuality(+0.05)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
-		a.adjustStreamQuality(-0.05)
-	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		a.handleClick()
 	}
@@ -472,6 +455,8 @@ func toInputKey(key ebiten.Key) (input.Key, bool) {
 		return input.KeyRightBracket, true
 	case ebiten.KeyBackslash:
 		return input.KeyBackslash, true
+	case ebiten.KeyIntlBackslash:
+		return input.KeyIntlBackslash, true
 	case ebiten.KeySemicolon:
 		return input.KeySemicolon, true
 	case ebiten.KeyApostrophe:
@@ -510,12 +495,38 @@ func toInputKey(key ebiten.Key) (input.Key, bool) {
 		return input.KeyF11, true
 	case ebiten.KeyF12:
 		return input.KeyF12, true
+	case ebiten.KeyF13:
+		return input.KeyF13, true
+	case ebiten.KeyF14:
+		return input.KeyF14, true
+	case ebiten.KeyF15:
+		return input.KeyF15, true
+	case ebiten.KeyF16:
+		return input.KeyF16, true
+	case ebiten.KeyF17:
+		return input.KeyF17, true
+	case ebiten.KeyF18:
+		return input.KeyF18, true
+	case ebiten.KeyF19:
+		return input.KeyF19, true
+	case ebiten.KeyF20:
+		return input.KeyF20, true
+	case ebiten.KeyF21:
+		return input.KeyF21, true
+	case ebiten.KeyF22:
+		return input.KeyF22, true
+	case ebiten.KeyF23:
+		return input.KeyF23, true
+	case ebiten.KeyF24:
+		return input.KeyF24, true
 	case ebiten.KeyPrintScreen:
 		return input.KeyPrintScreen, true
 	case ebiten.KeyScrollLock:
 		return input.KeyScrollLock, true
 	case ebiten.KeyPause:
 		return input.KeyPause, true
+	case ebiten.KeyContextMenu:
+		return input.KeyContextMenu, true
 	case ebiten.KeyInsert:
 		return input.KeyInsert, true
 	case ebiten.KeyHome:
@@ -570,6 +581,8 @@ func toInputKey(key ebiten.Key) (input.Key, bool) {
 		return input.KeyNumpad0, true
 	case ebiten.KeyNumpadDecimal:
 		return input.KeyNumpadDecimal, true
+	case ebiten.KeyNumpadEqual:
+		return input.KeyNumpadEqual, true
 	case ebiten.KeyControlLeft:
 		return input.KeyControlLeft, true
 	case ebiten.KeyShiftLeft:
@@ -589,17 +602,6 @@ func toInputKey(key ebiten.Key) (input.Key, bool) {
 	default:
 		return input.KeyUnknown, false
 	}
-}
-
-func (a *App) adjustStreamQuality(delta float64) {
-	snap := a.ctrl.Snapshot()
-	next := clamp(snap.Quality+delta, 0.1, 1.0)
-	if a.settingsActionPending(settingsGroupVideoQuality) {
-		return
-	}
-	a.withSettingsAction(settingsGroupVideoQuality, fmt.Sprintf("%.2f", next), func() error {
-		return a.ctrl.SetQuality(next)
-	})
 }
 
 func (a *App) runAsync(fn func()) {

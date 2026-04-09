@@ -112,3 +112,31 @@ func TestKeyString(t *testing.T) {
 		t.Fatalf("unexpected string for letter key: %q", got)
 	}
 }
+
+func TestExtendedKeysMapToHID(t *testing.T) {
+	tests := []struct {
+		key  Key
+		hid  byte
+		name string
+	}{
+		{key: KeyEscape, hid: 41, name: "Esc"},
+		{key: KeyIntlBackslash, hid: 100, name: "Intl \\"},
+		{key: KeyContextMenu, hid: 101, name: "Menu"},
+		{key: KeyNumpadEqual, hid: 103, name: "Num ="},
+		{key: KeyF13, hid: 104, name: "F13"},
+		{key: KeyF24, hid: 115, name: "F24"},
+	}
+
+	for _, tt := range tests {
+		hid, ok := KeyToHID(tt.key)
+		if !ok {
+			t.Fatalf("%v did not map to a HID code", tt.key)
+		}
+		if hid != tt.hid {
+			t.Fatalf("%v mapped to HID %d, want %d", tt.key, hid, tt.hid)
+		}
+		if got := tt.key.String(); got != tt.name {
+			t.Fatalf("%v string = %q, want %q", tt.key, got, tt.name)
+		}
+	}
+}

@@ -52,6 +52,7 @@ const (
 	KeyLeftBracket
 	KeyRightBracket
 	KeyBackslash
+	KeyIntlBackslash
 	KeySemicolon
 	KeyApostrophe
 	KeyGraveAccent
@@ -71,9 +72,22 @@ const (
 	KeyF10
 	KeyF11
 	KeyF12
+	KeyF13
+	KeyF14
+	KeyF15
+	KeyF16
+	KeyF17
+	KeyF18
+	KeyF19
+	KeyF20
+	KeyF21
+	KeyF22
+	KeyF23
+	KeyF24
 	KeyPrintScreen
 	KeyScrollLock
 	KeyPause
+	KeyContextMenu
 	KeyInsert
 	KeyHome
 	KeyPageUp
@@ -101,6 +115,7 @@ const (
 	KeyNumpad9
 	KeyNumpad0
 	KeyNumpadDecimal
+	KeyNumpadEqual
 	KeyControlLeft
 	KeyShiftLeft
 	KeyAltLeft
@@ -205,6 +220,8 @@ func KeyToHID(key Key) (byte, bool) {
 		return 48, true
 	case KeyBackslash:
 		return 49, true
+	case KeyIntlBackslash:
+		return 100, true
 	case KeySemicolon:
 		return 51, true
 	case KeyApostrophe:
@@ -243,12 +260,38 @@ func KeyToHID(key Key) (byte, bool) {
 		return 68, true
 	case KeyF12:
 		return 69, true
+	case KeyF13:
+		return 104, true
+	case KeyF14:
+		return 105, true
+	case KeyF15:
+		return 106, true
+	case KeyF16:
+		return 107, true
+	case KeyF17:
+		return 108, true
+	case KeyF18:
+		return 109, true
+	case KeyF19:
+		return 110, true
+	case KeyF20:
+		return 111, true
+	case KeyF21:
+		return 112, true
+	case KeyF22:
+		return 113, true
+	case KeyF23:
+		return 114, true
+	case KeyF24:
+		return 115, true
 	case KeyPrintScreen:
 		return 70, true
 	case KeyScrollLock:
 		return 71, true
 	case KeyPause:
 		return 72, true
+	case KeyContextMenu:
+		return 101, true
 	case KeyInsert:
 		return 73, true
 	case KeyHome:
@@ -303,6 +346,8 @@ func KeyToHID(key Key) (byte, bool) {
 		return 98, true
 	case KeyNumpadDecimal:
 		return 99, true
+	case KeyNumpadEqual:
+		return 103, true
 	case KeyControlLeft:
 		return 224, true
 	case KeyShiftLeft:
@@ -418,6 +463,8 @@ func (k Key) String() string {
 		return "]"
 	case KeyBackslash:
 		return "\\"
+	case KeyIntlBackslash:
+		return "Intl \\"
 	case KeySemicolon:
 		return ";"
 	case KeyApostrophe:
@@ -456,12 +503,38 @@ func (k Key) String() string {
 		return "F11"
 	case KeyF12:
 		return "F12"
+	case KeyF13:
+		return "F13"
+	case KeyF14:
+		return "F14"
+	case KeyF15:
+		return "F15"
+	case KeyF16:
+		return "F16"
+	case KeyF17:
+		return "F17"
+	case KeyF18:
+		return "F18"
+	case KeyF19:
+		return "F19"
+	case KeyF20:
+		return "F20"
+	case KeyF21:
+		return "F21"
+	case KeyF22:
+		return "F22"
+	case KeyF23:
+		return "F23"
+	case KeyF24:
+		return "F24"
 	case KeyPrintScreen:
 		return "Print Screen"
 	case KeyScrollLock:
 		return "Scroll Lock"
 	case KeyPause:
 		return "Pause"
+	case KeyContextMenu:
+		return "Menu"
 	case KeyInsert:
 		return "Insert"
 	case KeyHome:
@@ -516,6 +589,8 @@ func (k Key) String() string {
 		return "Num 0"
 	case KeyNumpadDecimal:
 		return "Num ."
+	case KeyNumpadEqual:
+		return "Num ="
 	case KeyControlLeft:
 		return "Left Ctrl"
 	case KeyShiftLeft:
