@@ -877,7 +877,7 @@ func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, 
 }
 
 func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
-	a.drawSettingsCard(screen, x, y, w, 248, "Keyboard", "Layout selection and a local pressed-key view.")
+	a.drawSettingsCard(screen, x, y, w, 248, "Keyboard", "Paste/macros layout and a local pressed-key view.")
 	drawText(screen, "Active layout", x+16, y+78, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	layout := snap.KeyboardLayout
 	if layout == "" {
@@ -920,7 +920,7 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 		}
 	}
 	a.drawSettingsActionStatus(screen, settingsGroupKeyboardLayout, x+16, y+202, w-32)
-	drawWrappedText(screen, "Paste and keyboard input use physical HID semantics. Unsupported paste characters are skipped and shown before send.", x+16, y+220, w-32, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawWrappedText(screen, "This layout is used for paste and keyboard macros. Normal live typing is sent as physical HID keys and follows the remote OS keyboard layout.", x+16, y+220, w-32, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 
 func (a *App) drawSettingsVideo(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
