@@ -137,6 +137,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 	if img != nil {
 		w, h := img.Bounds().Dx(), img.Bounds().Dy()
 		op := &ebiten.DrawImageOptions{}
+		op.Filter = ebiten.FilterLinear
 		scale := min(float64(videoArea.Dx())/float64(w), float64(videoArea.Dy())/float64(h))
 		drawW := float64(w) * scale
 		drawH := float64(h) * scale
