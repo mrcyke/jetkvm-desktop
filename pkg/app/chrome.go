@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"time"
@@ -101,6 +102,12 @@ type advancedState struct {
 	USBEmulation  *bool
 	AppVersion    string
 	SystemVersion string
+}
+
+type settingsActionVisual struct {
+	Enabled bool
+	Active  bool
+	Pending bool
 }
 
 func settingsSections(snap session.Snapshot) []settingsSectionDef {
@@ -603,141 +610,166 @@ func settingsSidebarMetrics(panelH float64, count int) (btnH, gap, fontSize floa
 }
 
 func (a *App) refreshSettingsSection(section settingsSection) {
+	seq := a.markSettingsSectionLoading(section)
+	go func() {
+		_ = a.loadSettingsSection(section, seq)
+	}()
+}
+
+func (a *App) refreshSettingsSectionSync(section settingsSection) error {
+	return a.loadSettingsSection(section, a.nextSectionLoadSeq(section))
+}
+
+func (a *App) markSettingsSectionLoading(section settingsSection) uint64 {
+	seq := a.nextSectionLoadSeq(section)
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	switch section {
 	case sectionAccess:
 		a.sectionData.Access.Loading = true
 		a.sectionData.Access.Error = ""
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var cloud struct {
-				Connected bool   `json:"connected"`
-				URL       string `json:"url"`
-				AppURL    string `json:"appUrl"`
-			}
-			var tlsState struct {
-				Mode string `json:"mode"`
-			}
-			access := accessState{Loading: false}
-			if err := a.ctrl.Query(ctx, "getCloudState", nil, &cloud); err == nil {
-				access.CloudConnected = cloud.Connected
-				access.CloudURL = cloud.URL
-				access.CloudAppURL = cloud.AppURL
-			}
-			if err := a.ctrl.Query(ctx, "getTLSState", nil, &tlsState); err == nil {
-				access.TLSMode = tlsState.Mode
-			}
-			if access.CloudURL == "" && access.TLSMode == "" {
-				access.Error = "No access RPC state available on this target"
-			}
-			a.mu.Lock()
-			a.sectionData.Access = access
-			a.mu.Unlock()
-		}()
 	case sectionHardware:
 		a.sectionData.Hardware.Loading = true
 		a.sectionData.Hardware.Error = ""
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var usbEnabled bool
-			var usbConfig struct {
-				VendorID  string `json:"vendor_id"`
-				ProductID string `json:"product_id"`
-			}
-			var usbDevices []any
-			var rotation struct {
-				Rotation string `json:"rotation"`
-			}
-			hw := hardwareState{Loading: false}
-			if err := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); err == nil {
-				hw.USBEmulation = &usbEnabled
-			}
-			if err := a.ctrl.Query(ctx, "getUsbConfig", nil, &usbConfig); err == nil {
-				hw.USBConfig = fmt.Sprintf("%s / %s", usbConfig.VendorID, usbConfig.ProductID)
-			}
-			if err := a.ctrl.Query(ctx, "getUsbDevices", nil, &usbDevices); err == nil {
-				hw.USBDevicesSummary = fmt.Sprintf("%d configured classes", len(usbDevices))
-			}
-			if err := a.ctrl.Query(ctx, "getDisplayRotation", nil, &rotation); err == nil {
-				hw.DisplayRotation = rotation.Rotation
-			}
-			if hw.USBEmulation == nil && hw.USBConfig == "" && hw.DisplayRotation == "" {
-				hw.Error = "No hardware RPC state available on this target"
-			}
-			a.mu.Lock()
-			a.sectionData.Hardware = hw
-			a.mu.Unlock()
-		}()
 	case sectionNetwork:
 		a.sectionData.Network.Loading = true
 		a.sectionData.Network.Error = ""
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var settings struct {
-				Hostname string `json:"hostname"`
-				IP       string `json:"ip"`
-			}
-			var state struct {
-				Hostname string `json:"hostname"`
-				IP       string `json:"ip"`
-				DHCP     bool   `json:"dhcp"`
-			}
-			netState := networkState{Loading: false}
-			if err := a.ctrl.Query(ctx, "getNetworkSettings", nil, &settings); err == nil {
-				netState.Hostname = settings.Hostname
-				netState.IP = settings.IP
-			}
-			if err := a.ctrl.Query(ctx, "getNetworkState", nil, &state); err == nil {
-				if netState.Hostname == "" {
-					netState.Hostname = state.Hostname
-				}
-				if netState.IP == "" {
-					netState.IP = state.IP
-				}
-				netState.DHCP = &state.DHCP
-			}
-			if netState.Hostname == "" && netState.IP == "" && netState.DHCP == nil {
-				netState.Error = "No network RPC state available on this target"
-			}
-			a.mu.Lock()
-			a.sectionData.Network = netState
-			a.mu.Unlock()
-		}()
 	case sectionAdvanced:
 		a.sectionData.Advanced.Loading = true
 		a.sectionData.Advanced.Error = ""
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var devMode struct {
-				Enabled bool `json:"enabled"`
-			}
-			var usbEnabled bool
-			var version struct {
-				AppVersion    string `json:"appVersion"`
-				SystemVersion string `json:"systemVersion"`
-			}
-			adv := advancedState{Loading: false}
-			if err := a.ctrl.Query(ctx, "getDevModeState", nil, &devMode); err == nil {
-				adv.DevMode = &devMode.Enabled
-			}
-			if err := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); err == nil {
-				adv.USBEmulation = &usbEnabled
-			}
-			if err := a.ctrl.Query(ctx, "getLocalVersion", nil, &version); err == nil {
-				adv.AppVersion = version.AppVersion
-				adv.SystemVersion = version.SystemVersion
-			}
-			if adv.DevMode == nil && adv.USBEmulation == nil && adv.AppVersion == "" {
-				adv.Error = "No advanced RPC state available on this target"
-			}
-			a.mu.Lock()
-			a.sectionData.Advanced = adv
-			a.mu.Unlock()
-		}()
 	}
+	return seq
+}
+
+func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var err error
+	switch section {
+	case sectionAccess:
+		state := accessState{Loading: false}
+		var cloud struct {
+			Connected bool   `json:"connected"`
+			URL       string `json:"url"`
+			AppURL    string `json:"appUrl"`
+		}
+		var tlsState struct {
+			Mode string `json:"mode"`
+		}
+		if callErr := a.ctrl.Query(ctx, "getCloudState", nil, &cloud); callErr == nil {
+			state.CloudConnected = cloud.Connected
+			state.CloudURL = cloud.URL
+			state.CloudAppURL = cloud.AppURL
+		}
+		if callErr := a.ctrl.Query(ctx, "getTLSState", nil, &tlsState); callErr == nil {
+			state.TLSMode = tlsState.Mode
+		}
+		if state.CloudURL == "" && state.TLSMode == "" {
+			state.Error = "No access RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Access = state
+		}
+		a.mu.Unlock()
+	case sectionHardware:
+		state := hardwareState{Loading: false}
+		var usbEnabled bool
+		var usbConfig struct {
+			VendorID  string `json:"vendor_id"`
+			ProductID string `json:"product_id"`
+		}
+		var usbDevices []any
+		var rotation struct {
+			Rotation string `json:"rotation"`
+		}
+		if callErr := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); callErr == nil {
+			state.USBEmulation = &usbEnabled
+		}
+		if callErr := a.ctrl.Query(ctx, "getUsbConfig", nil, &usbConfig); callErr == nil {
+			state.USBConfig = fmt.Sprintf("%s / %s", usbConfig.VendorID, usbConfig.ProductID)
+		}
+		if callErr := a.ctrl.Query(ctx, "getUsbDevices", nil, &usbDevices); callErr == nil {
+			state.USBDevicesSummary = fmt.Sprintf("%d configured classes", len(usbDevices))
+		}
+		if callErr := a.ctrl.Query(ctx, "getDisplayRotation", nil, &rotation); callErr == nil {
+			state.DisplayRotation = rotation.Rotation
+		}
+		if state.USBEmulation == nil && state.USBConfig == "" && state.DisplayRotation == "" {
+			state.Error = "No hardware RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Hardware = state
+		}
+		a.mu.Unlock()
+	case sectionNetwork:
+		state := networkState{Loading: false}
+		var settings struct {
+			Hostname string `json:"hostname"`
+			IP       string `json:"ip"`
+		}
+		var current struct {
+			Hostname string `json:"hostname"`
+			IP       string `json:"ip"`
+			DHCP     bool   `json:"dhcp"`
+		}
+		if callErr := a.ctrl.Query(ctx, "getNetworkSettings", nil, &settings); callErr == nil {
+			state.Hostname = settings.Hostname
+			state.IP = settings.IP
+		}
+		if callErr := a.ctrl.Query(ctx, "getNetworkState", nil, &current); callErr == nil {
+			if state.Hostname == "" {
+				state.Hostname = current.Hostname
+			}
+			if state.IP == "" {
+				state.IP = current.IP
+			}
+			state.DHCP = &current.DHCP
+		}
+		if state.Hostname == "" && state.IP == "" && state.DHCP == nil {
+			state.Error = "No network RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Network = state
+		}
+		a.mu.Unlock()
+	case sectionAdvanced:
+		state := advancedState{Loading: false}
+		var devMode struct {
+			Enabled bool `json:"enabled"`
+		}
+		var usbEnabled bool
+		var version struct {
+			AppVersion    string `json:"appVersion"`
+			SystemVersion string `json:"systemVersion"`
+		}
+		if callErr := a.ctrl.Query(ctx, "getDevModeState", nil, &devMode); callErr == nil {
+			state.DevMode = &devMode.Enabled
+		}
+		if callErr := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); callErr == nil {
+			state.USBEmulation = &usbEnabled
+		}
+		if callErr := a.ctrl.Query(ctx, "getLocalVersion", nil, &version); callErr == nil {
+			state.AppVersion = version.AppVersion
+			state.SystemVersion = version.SystemVersion
+		}
+		if state.DevMode == nil && state.USBEmulation == nil && state.AppVersion == "" {
+			state.Error = "No advanced RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Advanced = state
+		}
+		a.mu.Unlock()
+	}
+	return err
 }
 
 func (a *App) currentSection(sections []settingsSectionDef) settingsSectionDef {
@@ -770,17 +802,21 @@ func drawSettingsSectionLabel(screen *ebiten.Image, label string, x, y float64) 
 	drawText(screen, label, x, y, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 
-func (a *App) drawSettingsAction(screen *ebiten.Image, id, label string, x, y, w float64, enabled, active bool) {
-	btn := chromeButton{id: id, label: label, enabled: enabled, active: active, rect: rect{x: x, y: y, w: w, h: 30}}
+func (a *App) drawSettingsAction(screen *ebiten.Image, id, label string, x, y, w float64, visual settingsActionVisual) {
+	btn := chromeButton{id: id, label: label, enabled: visual.Enabled, active: visual.Active, rect: rect{x: x, y: y, w: w, h: 30}}
 	a.settingsButtons = append(a.settingsButtons, btn)
 	fill := color.RGBA{R: 30, G: 42, B: 58, A: 255}
 	stroke := color.RGBA{R: 80, G: 96, B: 112, A: 180}
 	textClr := color.RGBA{R: 228, G: 236, B: 244, A: 255}
-	if active {
+	if visual.Active {
 		fill = color.RGBA{R: 28, G: 66, B: 116, A: 255}
 		stroke = color.RGBA{R: 134, G: 186, B: 248, A: 180}
 	}
-	if !enabled {
+	if visual.Pending {
+		fill = color.RGBA{R: 88, G: 70, B: 24, A: 255}
+		stroke = color.RGBA{R: 234, G: 179, B: 8, A: 180}
+	}
+	if !visual.Enabled {
 		fill = color.RGBA{R: 24, G: 30, B: 38, A: 255}
 		stroke = color.RGBA{R: 60, G: 68, B: 76, A: 150}
 		textClr = color.RGBA{R: 128, G: 136, B: 144, A: 255}
@@ -788,6 +824,16 @@ func (a *App) drawSettingsAction(screen *ebiten.Image, id, label string, x, y, w
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), 30, fill, false)
 	vector.StrokeRect(screen, float32(x), float32(y), float32(w), 30, 1, stroke, false)
 	drawText(screen, label, x+12, y+8, 13, textClr)
+}
+
+func (a *App) drawSettingsActionStatus(screen *ebiten.Image, group settingsActionGroup, x, y, w float64) {
+	state := a.settingsAction(group)
+	switch {
+	case state.Pending:
+		drawWrappedText(screen, "Applying…", x, y, w, 12, color.RGBA{R: 245, G: 200, B: 96, A: 255})
+	case state.Error != "":
+		drawWrappedText(screen, state.Error, x, y, w, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+	}
 }
 
 func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -807,8 +853,8 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 	drawSettingsKeyValue(screen, "Updates", updateLabel, x+16, y+184, 116)
 	a.drawSettingsCard(screen, rightX, y, rightW, 214, "Actions", "")
 	drawWrappedText(screen, "Reconnect the native session or force a device reboot.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "reconnect", reconnectLabel(snap.Phase), rightX+16, y+98, rightW-32, true, false)
-	a.drawSettingsAction(screen, "reboot", "Reboot device", rightX+16, y+136, rightW-32, snap.Phase != session.PhaseConnecting, false)
+	a.drawSettingsAction(screen, "reconnect", reconnectLabel(snap.Phase), rightX+16, y+98, rightW-32, settingsActionVisual{Enabled: true})
+	a.drawSettingsAction(screen, "reboot", "Reboot device", rightX+16, y+136, rightW-32, settingsActionVisual{Enabled: snap.Phase != session.PhaseConnecting})
 }
 
 func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -817,17 +863,17 @@ func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, 
 	rightW := w - leftW - 14
 	a.drawSettingsCard(screen, x, y, leftW, 196, "Pointer", "")
 	drawSettingsSectionLabel(screen, "Remote mode", x+16, y+48)
-	a.drawSettingsAction(screen, "mouse_absolute", "Absolute", x+16, y+66, 110, snap.Phase == session.PhaseConnected, !a.relative)
-	a.drawSettingsAction(screen, "mouse_relative", "Relative", x+138, y+66, 110, snap.Phase == session.PhaseConnected, a.relative)
+	a.drawSettingsAction(screen, "mouse_absolute", "Absolute", x+16, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative})
+	a.drawSettingsAction(screen, "mouse_relative", "Relative", x+138, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative})
 	drawSettingsSectionLabel(screen, "Local cursor", x+16, y+114)
-	a.drawSettingsAction(screen, "mouse_hide_cursor", "Hide Host Cursor", x+16, y+132, 154, true, a.hideCursor)
+	a.drawSettingsAction(screen, "mouse_hide_cursor", "Hide Host Cursor", x+16, y+132, 154, settingsActionVisual{Enabled: true, Active: a.hideCursor})
 	a.drawSettingsCard(screen, rightX, y, rightW, 196, "Wheel", "")
 	drawWrappedText(screen, "Throttle local wheel bursts before sending them to the device.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "scroll_0", "Off", rightX+16, y+98, 64, true, a.scrollThrottle == 0)
-	a.drawSettingsAction(screen, "scroll_10", "Low", rightX+92, y+98, 64, true, a.scrollThrottle == 10*time.Millisecond)
-	a.drawSettingsAction(screen, "scroll_25", "Medium", rightX+168, y+98, 84, true, a.scrollThrottle == 25*time.Millisecond)
-	a.drawSettingsAction(screen, "scroll_50", "High", rightX+16, y+136, 72, true, a.scrollThrottle == 50*time.Millisecond)
-	a.drawSettingsAction(screen, "scroll_100", "Very High", rightX+100, y+136, 108, true, a.scrollThrottle == 100*time.Millisecond)
+	a.drawSettingsAction(screen, "scroll_0", "Off", rightX+16, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0})
+	a.drawSettingsAction(screen, "scroll_10", "Low", rightX+92, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_25", "Medium", rightX+168, y+98, 84, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_50", "High", rightX+16, y+136, 72, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_100", "Very High", rightX+100, y+136, 108, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond})
 }
 
 func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -837,8 +883,9 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 	if layout == "" {
 		layout = "en_US"
 	}
+	layoutState := a.settingsAction(settingsGroupKeyboardLayout)
 	drawText(screen, layout, x+118, y+78, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
-	a.drawSettingsAction(screen, "toggle_pressed_keys", "Show Pressed Keys", x+w-174, y+64, 158, true, a.showPressedKeys)
+	a.drawSettingsAction(screen, "toggle_pressed_keys", "Show Pressed Keys", x+w-174, y+64, 158, settingsActionVisual{Enabled: true, Active: a.showPressedKeys})
 	drawText(screen, "Layout presets", x+16, y+118, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	options := []struct {
 		id    string
@@ -860,13 +907,19 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 		if len(option.label) > 7 {
 			btnW = 112
 		}
-		a.drawSettingsAction(screen, option.id, option.label, rowX, rowY, btnW, snap.Phase == session.PhaseConnected, layout == option.id[7:])
+		optionLayout := option.id[7:]
+		a.drawSettingsAction(screen, option.id, option.label, rowX, rowY, btnW, settingsActionVisual{
+			Enabled: snap.Phase == session.PhaseConnected && (!layoutState.Pending || layoutState.PendingChoice == optionLayout),
+			Active:  layout == optionLayout,
+			Pending: layoutState.Pending && layoutState.PendingChoice == optionLayout,
+		})
 		rowX += btnW + 10
 		if (i+1)%4 == 0 {
 			rowX = x + 16
 			rowY += 38
 		}
 	}
+	a.drawSettingsActionStatus(screen, settingsGroupKeyboardLayout, x+16, y+202, w-32)
 	drawWrappedText(screen, "Paste and keyboard input use physical HID semantics. Unsupported paste characters are skipped and shown before send.", x+16, y+220, w-32, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 
@@ -874,12 +927,14 @@ func (a *App) drawSettingsVideo(screen *ebiten.Image, snap session.Snapshot, x, 
 	leftW := (w - 14) * 0.48
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
+	qualityState := a.settingsAction(settingsGroupVideoQuality)
 	a.drawSettingsCard(screen, x, y, leftW, 174, "Stream", "")
 	drawSettingsSectionLabel(screen, "Quality preset", x+16, y+48)
-	a.drawSettingsAction(screen, "quality_preset_high", "High", x+16, y+68, 96, snap.Phase == session.PhaseConnected, snap.Quality >= 0.95)
-	a.drawSettingsAction(screen, "quality_preset_medium", "Medium", x+124, y+68, 96, snap.Phase == session.PhaseConnected, snap.Quality >= 0.45 && snap.Quality < 0.95)
-	a.drawSettingsAction(screen, "quality_preset_low", "Low", x+232, y+68, 96, snap.Phase == session.PhaseConnected, snap.Quality < 0.45)
+	a.drawSettingsAction(screen, "quality_preset_high", "High", x+16, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "high"), Active: snap.Quality >= 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "high"})
+	a.drawSettingsAction(screen, "quality_preset_medium", "Medium", x+124, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "medium"), Active: snap.Quality >= 0.45 && snap.Quality < 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "medium"})
+	a.drawSettingsAction(screen, "quality_preset_low", "Low", x+232, y+68, 96, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "low"), Active: snap.Quality < 0.45, Pending: qualityState.Pending && qualityState.PendingChoice == "low"})
 	drawText(screen, fmt.Sprintf("Current factor %.2f", snap.Quality), x+16, y+120, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	a.drawSettingsActionStatus(screen, settingsGroupVideoQuality, x+16, y+144, leftW-32)
 	a.drawSettingsCard(screen, rightX, y, rightW, 174, "EDID", "")
 	edid := snap.EDID
 	if edid == "" {
@@ -903,15 +958,19 @@ func (a *App) drawSettingsHardware(screen *ebiten.Image, x, y, w float64) {
 	}
 	drawSettingsKeyValue(screen, "Rotation", state.DisplayRotation, x+16, y+50, 86)
 	drawWrappedText(screen, "Rotate the displayed feed to match the connected panel orientation.", x+16, y+82, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "rotate_normal", "Normal", x+16, y+150, 88, state.DisplayRotation != "", state.DisplayRotation == "270")
-	a.drawSettingsAction(screen, "rotate_inverted", "Inverted", x+116, y+150, 98, state.DisplayRotation != "", state.DisplayRotation == "90")
+	rotateState := a.settingsAction(settingsGroupDisplayRotate)
+	a.drawSettingsAction(screen, "rotate_normal", "Normal", x+16, y+150, 88, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "270"), Active: state.DisplayRotation == "270", Pending: rotateState.Pending && rotateState.PendingChoice == "270"})
+	a.drawSettingsAction(screen, "rotate_inverted", "Inverted", x+116, y+150, 98, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "90"), Active: state.DisplayRotation == "90", Pending: rotateState.Pending && rotateState.PendingChoice == "90"})
+	a.drawSettingsActionStatus(screen, settingsGroupDisplayRotate, x+16, y+188, leftW-32)
 	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.USBEmulation), rightX+16, y+50, 112)
 	drawSettingsKeyValue(screen, "USB Config", state.USBConfig, rightX+16, y+76, 112)
 	drawSettingsSectionLabel(screen, "Configured devices", rightX+16, y+108)
 	drawWrappedText(screen, state.USBDevicesSummary, rightX+16, y+126, rightW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	if state.USBEmulation != nil {
-		a.drawSettingsAction(screen, "usb_emulation_on", "USB On", rightX+16, y+150, 86, true, *state.USBEmulation)
-		a.drawSettingsAction(screen, "usb_emulation_off", "USB Off", rightX+114, y+150, 92, true, !*state.USBEmulation)
+		usbState := a.settingsAction(settingsGroupUSBEmulation)
+		a.drawSettingsAction(screen, "usb_emulation_on", "USB On", rightX+16, y+150, 86, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "on", Active: *state.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "on"})
+		a.drawSettingsAction(screen, "usb_emulation_off", "USB Off", rightX+114, y+150, 92, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "off", Active: !*state.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "off"})
+		a.drawSettingsActionStatus(screen, settingsGroupUSBEmulation, rightX+16, y+188, rightW-32)
 	}
 	if state.Error != "" {
 		drawWrappedText(screen, state.Error, x+16, y+192, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
@@ -938,8 +997,10 @@ func (a *App) drawSettingsAccess(screen *ebiten.Image, x, y, w float64) {
 	drawWrappedText(screen, fallbackLabel(state.CloudAppURL, "Unavailable"), x+16, y+156, leftW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	drawSettingsKeyValue(screen, "Mode", state.TLSMode, rightX+16, y+50, 70)
 	drawWrappedText(screen, "Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", rightX+16, y+84, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "tls_disabled", "Disabled", rightX+16, y+150, 92, state.TLSMode != "", state.TLSMode == "disabled")
-	a.drawSettingsAction(screen, "tls_self_signed", "Self-Signed", rightX+120, y+150, 114, state.TLSMode != "", state.TLSMode == "self-signed")
+	tlsState := a.settingsAction(settingsGroupTLSMode)
+	a.drawSettingsAction(screen, "tls_disabled", "Disabled", rightX+16, y+150, 92, settingsActionVisual{Enabled: state.TLSMode != "" && (!tlsState.Pending || tlsState.PendingChoice == "disabled"), Active: state.TLSMode == "disabled", Pending: tlsState.Pending && tlsState.PendingChoice == "disabled"})
+	a.drawSettingsAction(screen, "tls_self_signed", "Self-Signed", rightX+120, y+150, 114, settingsActionVisual{Enabled: state.TLSMode != "" && (!tlsState.Pending || tlsState.PendingChoice == "self-signed"), Active: state.TLSMode == "self-signed", Pending: tlsState.Pending && tlsState.PendingChoice == "self-signed"})
+	a.drawSettingsActionStatus(screen, settingsGroupTLSMode, rightX+16, y+188, rightW-32)
 	if state.Error != "" {
 		drawWrappedText(screen, state.Error, x+16, y+192, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
 	}
@@ -983,10 +1044,10 @@ func (a *App) drawSettingsAdvanced(screen *ebiten.Image, x, y, w float64) {
 func (a *App) drawSettingsAppearance(screen *ebiten.Image, x, y, w float64) {
 	a.drawSettingsCard(screen, x, y, w, 170, "Chrome", "")
 	drawSettingsSectionLabel(screen, "Top bar", x+16, y+48)
-	a.drawSettingsAction(screen, "pin_chrome_off", "Auto-hide", x+136, y+36, 96, true, !a.prefs.PinChrome)
-	a.drawSettingsAction(screen, "pin_chrome_on", "Pinned", x+244, y+36, 84, true, a.prefs.PinChrome)
+	a.drawSettingsAction(screen, "pin_chrome_off", "Auto-hide", x+136, y+36, 96, settingsActionVisual{Enabled: true, Active: !a.prefs.PinChrome})
+	a.drawSettingsAction(screen, "pin_chrome_on", "Pinned", x+244, y+36, 84, settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})
 	drawSettingsSectionLabel(screen, "Window", x+16, y+90)
-	a.drawSettingsAction(screen, "fullscreen", "Toggle Fullscreen", x+136, y+78, 160, true, ebiten.IsFullscreen())
+	a.drawSettingsAction(screen, "fullscreen", "Toggle Fullscreen", x+136, y+78, 160, settingsActionVisual{Enabled: true, Active: ebiten.IsFullscreen()})
 	drawWrappedText(screen, "Pinned is a local preference and keeps the top action bar visible at all times.", x+16, y+122, w-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 

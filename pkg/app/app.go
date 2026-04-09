@@ -84,6 +84,8 @@ type App struct {
 	pendingTarget          string
 	discovery              *discovery.Scanner
 	discovered             []discovery.Device
+	settingsActions        map[settingsActionGroup]settingsActionState
+	sectionLoadSeq         map[settingsSection]uint64
 }
 
 type statsPoint struct {
@@ -92,6 +94,23 @@ type statsPoint struct {
 	JitterMs        float64
 	RoundTripMs     float64
 	FramesPerSecond float64
+}
+
+type settingsActionGroup string
+
+const (
+	settingsGroupKeyboardLayout settingsActionGroup = "keyboard_layout"
+	settingsGroupVideoQuality   settingsActionGroup = "video_quality"
+	settingsGroupTLSMode        settingsActionGroup = "tls_mode"
+	settingsGroupDisplayRotate  settingsActionGroup = "display_rotation"
+	settingsGroupUSBEmulation   settingsActionGroup = "usb_emulation"
+)
+
+type settingsActionState struct {
+	Pending       bool
+	PendingChoice string
+	Error         string
+	RequestSeq    uint64
 }
 
 func New(cfg Config) (*App, error) {
@@ -111,6 +130,8 @@ func New(cfg Config) (*App, error) {
 		pasteDelay:      100,
 		launcherOpen:    launcherOpen,
 		discovery:       discovery.NewScanner(),
+		settingsActions: make(map[settingsActionGroup]settingsActionState),
+		sectionLoadSeq:  make(map[settingsSection]uint64),
 	}, nil
 }
 
@@ -573,14 +594,69 @@ func toInputKey(key ebiten.Key) (input.Key, bool) {
 func (a *App) adjustStreamQuality(delta float64) {
 	snap := a.ctrl.Snapshot()
 	next := clamp(snap.Quality+delta, 0.1, 1.0)
-
-	a.runAsync(func() {
-		_ = a.ctrl.SetQuality(next)
+	if a.settingsActionPending(settingsGroupVideoQuality) {
+		return
+	}
+	a.withSettingsAction(settingsGroupVideoQuality, fmt.Sprintf("%.2f", next), func() error {
+		return a.ctrl.SetQuality(next)
 	})
 }
 
 func (a *App) runAsync(fn func()) {
 	go fn()
+}
+
+func (a *App) settingsAction(group settingsActionGroup) settingsActionState {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.settingsActions[group]
+}
+
+func (a *App) settingsActionPending(group settingsActionGroup) bool {
+	return a.settingsAction(group).Pending
+}
+
+func (a *App) beginSettingsAction(group settingsActionGroup, choice string) uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := a.settingsActions[group]
+	state.Pending = true
+	state.PendingChoice = choice
+	state.Error = ""
+	state.RequestSeq++
+	a.settingsActions[group] = state
+	return state.RequestSeq
+}
+
+func (a *App) finishSettingsAction(group settingsActionGroup, seq uint64, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := a.settingsActions[group]
+	if state.RequestSeq != seq {
+		return
+	}
+	state.Pending = false
+	state.PendingChoice = ""
+	if err != nil {
+		state.Error = err.Error()
+	} else {
+		state.Error = ""
+	}
+	a.settingsActions[group] = state
+}
+
+func (a *App) withSettingsAction(group settingsActionGroup, choice string, fn func() error) {
+	seq := a.beginSettingsAction(group, choice)
+	go func() {
+		a.finishSettingsAction(group, seq, fn())
+	}()
+}
+
+func (a *App) nextSectionLoadSeq(section settingsSection) uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sectionLoadSeq[section]++
+	return a.sectionLoadSeq[section]
 }
 
 func (a *App) setMouseRelative(relative bool) {
@@ -706,16 +782,25 @@ func (a *App) invokeAction(id string) {
 	case "mouse_relative":
 		a.setMouseRelative(true)
 	case "quality_preset_high":
-		a.runAsync(func() {
-			_ = a.ctrl.SetQuality(1.0)
+		if a.settingsActionPending(settingsGroupVideoQuality) {
+			return
+		}
+		a.withSettingsAction(settingsGroupVideoQuality, "high", func() error {
+			return a.ctrl.SetQuality(1.0)
 		})
 	case "quality_preset_medium":
-		a.runAsync(func() {
-			_ = a.ctrl.SetQuality(0.5)
+		if a.settingsActionPending(settingsGroupVideoQuality) {
+			return
+		}
+		a.withSettingsAction(settingsGroupVideoQuality, "medium", func() error {
+			return a.ctrl.SetQuality(0.5)
 		})
 	case "quality_preset_low":
-		a.runAsync(func() {
-			_ = a.ctrl.SetQuality(0.1)
+		if a.settingsActionPending(settingsGroupVideoQuality) {
+			return
+		}
+		a.withSettingsAction(settingsGroupVideoQuality, "low", func() error {
+			return a.ctrl.SetQuality(0.1)
 		})
 	case "reboot":
 		a.runAsync(func() {
@@ -763,67 +848,81 @@ func (a *App) invokeAction(id string) {
 	case "fullscreen":
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	case "tls_disabled":
-		a.runAsync(func() {
-			_ = a.ctrl.SetTLSMode("disabled")
-			a.refreshSettingsSection(sectionAccess)
+		if a.settingsActionPending(settingsGroupTLSMode) {
+			return
+		}
+		a.withSettingsAction(settingsGroupTLSMode, "disabled", func() error {
+			if err := a.ctrl.SetTLSMode("disabled"); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionAccess)
 		})
 	case "tls_self_signed":
-		a.runAsync(func() {
-			_ = a.ctrl.SetTLSMode("self-signed")
-			a.refreshSettingsSection(sectionAccess)
+		if a.settingsActionPending(settingsGroupTLSMode) {
+			return
+		}
+		a.withSettingsAction(settingsGroupTLSMode, "self-signed", func() error {
+			if err := a.ctrl.SetTLSMode("self-signed"); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionAccess)
 		})
 	case "rotate_normal":
-		a.runAsync(func() {
-			_ = a.ctrl.SetDisplayRotation("270")
-			a.refreshSettingsSection(sectionHardware)
+		if a.settingsActionPending(settingsGroupDisplayRotate) {
+			return
+		}
+		a.withSettingsAction(settingsGroupDisplayRotate, "270", func() error {
+			if err := a.ctrl.SetDisplayRotation("270"); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionHardware)
 		})
 	case "rotate_inverted":
-		a.runAsync(func() {
-			_ = a.ctrl.SetDisplayRotation("90")
-			a.refreshSettingsSection(sectionHardware)
+		if a.settingsActionPending(settingsGroupDisplayRotate) {
+			return
+		}
+		a.withSettingsAction(settingsGroupDisplayRotate, "90", func() error {
+			if err := a.ctrl.SetDisplayRotation("90"); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionHardware)
 		})
 	case "usb_emulation_on":
-		a.runAsync(func() {
-			_ = a.ctrl.SetUSBEmulation(true)
-			a.refreshSettingsSection(sectionHardware)
+		if a.settingsActionPending(settingsGroupUSBEmulation) {
+			return
+		}
+		a.withSettingsAction(settingsGroupUSBEmulation, "on", func() error {
+			if err := a.ctrl.SetUSBEmulation(true); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionHardware)
 		})
 	case "usb_emulation_off":
-		a.runAsync(func() {
-			_ = a.ctrl.SetUSBEmulation(false)
-			a.refreshSettingsSection(sectionHardware)
+		if a.settingsActionPending(settingsGroupUSBEmulation) {
+			return
+		}
+		a.withSettingsAction(settingsGroupUSBEmulation, "off", func() error {
+			if err := a.ctrl.SetUSBEmulation(false); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionHardware)
 		})
 	case "layout:en_US":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("en_US")
-		})
+		a.invokeKeyboardLayoutAction("en_US")
 	case "layout:en_UK":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("en_UK")
-		})
+		a.invokeKeyboardLayoutAction("en_UK")
 	case "layout:da_DK":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("da_DK")
-		})
+		a.invokeKeyboardLayoutAction("da_DK")
 	case "layout:de_DE":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("de_DE")
-		})
+		a.invokeKeyboardLayoutAction("de_DE")
 	case "layout:fr_FR":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("fr_FR")
-		})
+		a.invokeKeyboardLayoutAction("fr_FR")
 	case "layout:es_ES":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("es_ES")
-		})
+		a.invokeKeyboardLayoutAction("es_ES")
 	case "layout:it_IT":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("it_IT")
-		})
+		a.invokeKeyboardLayoutAction("it_IT")
 	case "layout:ja_JP":
-		a.runAsync(func() {
-			_ = a.ctrl.SetKeyboardLayout("ja_JP")
-		})
+		a.invokeKeyboardLayoutAction("ja_JP")
 	default:
 		if strings.HasPrefix(id, "discover:") {
 			a.connectFromLauncher(strings.TrimPrefix(id, "discover:"))
@@ -834,6 +933,15 @@ func (a *App) invokeAction(id string) {
 			a.refreshSettingsSection(a.settingsSection)
 		}
 	}
+}
+
+func (a *App) invokeKeyboardLayoutAction(layout string) {
+	if a.settingsActionPending(settingsGroupKeyboardLayout) {
+		return
+	}
+	a.withSettingsAction(settingsGroupKeyboardLayout, layout, func() error {
+		return a.ctrl.SetKeyboardLayout(layout)
+	})
 }
 
 func (a *App) syncChromeVisibility() {

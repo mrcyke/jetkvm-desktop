@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestNormalizeBaseURL(t *testing.T) {
 	tests := []struct {
@@ -50,5 +53,83 @@ func TestIsValidConnectHost(t *testing.T) {
 		if isValidConnectHost(value) {
 			t.Fatalf("expected %q to be invalid", value)
 		}
+	}
+}
+
+func TestSettingsActionLifecycle(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seq := app.beginSettingsAction(settingsGroupKeyboardLayout, "da_DK")
+	state := app.settingsAction(settingsGroupKeyboardLayout)
+	if !state.Pending {
+		t.Fatal("expected action to be pending")
+	}
+	if state.PendingChoice != "da_DK" {
+		t.Fatalf("pending choice = %q, want da_DK", state.PendingChoice)
+	}
+	if seq == 0 {
+		t.Fatal("expected non-zero request sequence")
+	}
+
+	app.finishSettingsAction(settingsGroupKeyboardLayout, seq, nil)
+	state = app.settingsAction(settingsGroupKeyboardLayout)
+	if state.Pending {
+		t.Fatal("expected action to settle")
+	}
+	if state.Error != "" {
+		t.Fatalf("expected no error after success, got %q", state.Error)
+	}
+	if state.PendingChoice != "" {
+		t.Fatalf("expected pending choice to clear, got %q", state.PendingChoice)
+	}
+}
+
+func TestSettingsActionIgnoresStaleCompletion(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := app.beginSettingsAction(settingsGroupKeyboardLayout, "da_DK")
+	second := app.beginSettingsAction(settingsGroupKeyboardLayout, "en_US")
+
+	app.finishSettingsAction(settingsGroupKeyboardLayout, first, errors.New("stale failure"))
+	state := app.settingsAction(settingsGroupKeyboardLayout)
+	if !state.Pending {
+		t.Fatal("expected stale completion to leave newer request pending")
+	}
+	if state.PendingChoice != "en_US" {
+		t.Fatalf("pending choice = %q, want en_US", state.PendingChoice)
+	}
+	if state.Error != "" {
+		t.Fatalf("expected stale error to be ignored, got %q", state.Error)
+	}
+
+	app.finishSettingsAction(settingsGroupKeyboardLayout, second, errors.New("latest failure"))
+	state = app.settingsAction(settingsGroupKeyboardLayout)
+	if state.Pending {
+		t.Fatal("expected latest request to settle")
+	}
+	if state.Error != "latest failure" {
+		t.Fatalf("error = %q, want latest failure", state.Error)
+	}
+}
+
+func TestSectionLoadSeqMonotonic(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := app.markSettingsSectionLoading(sectionAccess)
+	second := app.markSettingsSectionLoading(sectionAccess)
+	if second <= first {
+		t.Fatalf("expected section sequence to increase, got %d then %d", first, second)
+	}
+	if !app.sectionData.Access.Loading {
+		t.Fatal("expected section to be marked loading")
 	}
 }
