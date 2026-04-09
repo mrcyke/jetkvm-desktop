@@ -39,6 +39,9 @@ type App struct {
 	buttons     []button
 	renderRect  rect
 	focused     bool
+	lastWidth   int
+	lastHeight  int
+	resizeUntil time.Time
 }
 
 func New(cfg Config) (*App, error) {
@@ -164,6 +167,11 @@ func (a *App) Draw(screen *ebiten.Image) {
 }
 
 func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
+	if a.lastWidth != 0 && a.lastHeight != 0 && (a.lastWidth != outsideWidth || a.lastHeight != outsideHeight) {
+		a.resizeUntil = time.Now().Add(200 * time.Millisecond)
+	}
+	a.lastWidth = outsideWidth
+	a.lastHeight = outsideHeight
 	return outsideWidth, outsideHeight
 }
 
@@ -203,6 +211,12 @@ func (a *App) syncMouse() {
 		}
 	} else {
 		if !a.renderRect.valid() {
+			return
+		}
+		if time.Now().Before(a.resizeUntil) {
+			a.lastX = x
+			a.lastY = y
+			a.lastButtons = buttons
 			return
 		}
 		if !a.renderRect.contains(x, y) && buttons == 0 && a.lastButtons == 0 {
