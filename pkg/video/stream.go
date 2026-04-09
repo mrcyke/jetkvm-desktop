@@ -103,7 +103,12 @@ func AttachRemoteTrack(parent context.Context, track *webrtc.TrackRemote) (*Stre
 		// Screen-content H.264 keyframes can span well over hundreds of RTP packets,
 		// especially on real 1080p devices. A too-small samplebuilder buffer drops
 		// fragmented access units before the decoder ever sees a complete frame.
-		sb := samplebuilder.New(4096, &codecs.H264Packet{}, track.Codec().ClockRate)
+		sb := samplebuilder.New(
+			4096,
+			&codecs.H264Packet{},
+			track.Codec().ClockRate,
+			samplebuilder.WithMaxTimeDelay(33*time.Millisecond),
+		)
 		for {
 			select {
 			case <-ctx.Done():

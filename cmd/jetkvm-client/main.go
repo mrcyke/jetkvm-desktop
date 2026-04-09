@@ -29,6 +29,7 @@ func main() {
 
 			ebiten.SetWindowSize(1280, 720)
 			ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+			ebiten.SetTPS(ebiten.SyncWithFPS)
 			ebiten.SetWindowTitle("jetkvm-client")
 			return ebiten.RunGame(clientApp)
 		},
