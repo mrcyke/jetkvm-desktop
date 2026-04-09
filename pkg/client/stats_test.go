@@ -75,3 +75,25 @@ func TestHandleTransportDisconnectNoopsAfterClose(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestStatsSkipsPeerConnectionPollingAfterClose(t *testing.T) {
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.pc = pc
+
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if c.pc != nil {
+		t.Fatal("expected Close to clear peer connection reference")
+	}
+
+	_ = c.Stats()
+}

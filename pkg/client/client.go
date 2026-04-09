@@ -281,12 +281,15 @@ func (c *Client) Close() error {
 	}
 	if c.videoStream != nil {
 		c.videoStream.Close()
+		c.videoStream = nil
 	}
 	if c.signalConn != nil {
 		_ = c.signalConn.Close()
+		c.signalConn = nil
 	}
 	if c.pc != nil {
 		err = c.pc.Close()
+		c.pc = nil
 	}
 	return err
 }
@@ -513,6 +516,14 @@ func (c *Client) Stats() StatsSnapshot {
 	stats := StatsSnapshot{
 		SignalingMode: c.signalMode,
 	}
+	select {
+	case <-c.closeCh:
+		if err, ok := c.lastError.Load().(string); ok {
+			stats.LastError = err
+		}
+		return stats
+	default:
+	}
 	if frame, _ := c.LatestFrameInfo(); frame != nil {
 		b := frame.Bounds()
 		stats.FrameWidth = b.Dx()
@@ -520,6 +531,12 @@ func (c *Client) Stats() StatsSnapshot {
 	}
 	if c.pc != nil {
 		stats.RTCState = c.pc.ConnectionState()
+		if stats.RTCState == webrtc.PeerConnectionStateClosed {
+			if err, ok := c.lastError.Load().(string); ok {
+				stats.LastError = err
+			}
+			return stats
+		}
 		report := c.pc.GetStats()
 		now := time.Now()
 		for _, raw := range report {
