@@ -79,10 +79,10 @@ type App struct {
 	statsHistory           []statsPoint
 	lastStatsPoll          time.Time
 	launcherOpen           bool
+	launcherMode           launcherMode
 	launcherInput          string
 	launcherPassword       string
 	launcherError          string
-	launcherPromptPassword bool
 	pendingTarget          string
 	discovery              *discovery.Scanner
 	discovered             []discovery.Device
@@ -97,6 +97,13 @@ type statsPoint struct {
 	RoundTripMs     float64
 	FramesPerSecond float64
 }
+
+type launcherMode string
+
+const (
+	launcherModeBrowse   launcherMode = "browse"
+	launcherModePassword launcherMode = "password"
+)
 
 type settingsActionGroup string
 
@@ -131,6 +138,7 @@ func New(cfg Config) (*App, error) {
 		scrollThrottle:  scrollThrottleFromPref(prefs.ScrollThrottle),
 		pasteDelay:      100,
 		launcherOpen:    launcherOpen,
+		launcherMode:    launcherModeBrowse,
 		discovery:       discovery.NewScanner(),
 		settingsActions: make(map[settingsActionGroup]settingsActionState),
 		sectionLoadSeq:  make(map[settingsSection]uint64),
@@ -764,6 +772,14 @@ func (a *App) invokeAction(id string) {
 		a.connectFromLauncher(a.launcherInput)
 	case "launcher_retry_password":
 		a.connectFromLauncher(a.pendingTarget)
+	case "launcher_back":
+		a.launcherMode = launcherModeBrowse
+		a.launcherPassword = ""
+		a.launcherError = ""
+		if a.cfg.BaseURL != "" && a.ctrl != nil {
+			a.ctrl.Stop()
+			a.ctrl = nil
+		}
 	case "reconnect":
 		if a.ctrl == nil {
 			return
@@ -1021,10 +1037,7 @@ func (a *App) syncSessionState() {
 	snap := a.ctrl.Snapshot()
 	phase := snap.Phase
 	if phase == session.PhaseAuthFailed && a.lastPhase != session.PhaseAuthFailed {
-		a.launcherOpen = true
-		a.launcherPromptPassword = true
-		a.launcherError = "Password required for " + a.cfg.BaseURL
-		a.pendingTarget = a.cfg.BaseURL
+		a.showPasswordPrompt(a.cfg.BaseURL, "Password required for "+a.cfg.BaseURL)
 		a.settingsOpen = false
 		a.pasteOpen = false
 		a.statsOpen = false
@@ -1047,6 +1060,10 @@ func (a *App) syncSessionState() {
 		}
 	}
 	if phase == session.PhaseConnected && a.lastPhase != session.PhaseConnected {
+		a.launcherOpen = false
+		a.launcherMode = launcherModeBrowse
+		a.launcherError = ""
+		a.launcherPassword = ""
 		a.lastX, a.lastY = ebiten.CursorPosition()
 		a.lastButtons = 0
 		a.revealUIFor(2 * time.Second)
@@ -1358,10 +1375,19 @@ func (a *App) connectFromLauncher(target string) {
 		return
 	}
 	a.launcherError = ""
-	a.launcherOpen = false
-	a.launcherInput = baseURL
 	a.pendingTarget = baseURL
+	a.launcherInput = baseURL
+	if a.launcherMode == launcherModeBrowse {
+		a.launcherOpen = false
+	}
 	a.connectTo(baseURL)
+}
+
+func (a *App) showPasswordPrompt(target, errMsg string) {
+	a.pendingTarget = target
+	a.launcherOpen = true
+	a.launcherMode = launcherModePassword
+	a.launcherError = errMsg
 }
 
 func (a *App) connectTo(target string) {
@@ -1369,6 +1395,7 @@ func (a *App) connectTo(target string) {
 	if err != nil {
 		a.launcherError = err.Error()
 		a.launcherOpen = true
+		a.launcherMode = launcherModeBrowse
 		return
 	}
 	if a.ctrl != nil {

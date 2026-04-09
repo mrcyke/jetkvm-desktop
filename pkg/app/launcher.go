@@ -50,28 +50,23 @@ func (a *App) sortDiscovered() {
 }
 
 func (a *App) syncLauncherInput() {
-	targetField := !a.launcherPromptPassword
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
 		value := a.launcherInput
-		if !targetField {
+		if a.launcherMode == launcherModePassword {
 			value = a.launcherPassword
 		}
 		runes := []rune(value)
 		if len(runes) > 0 {
 			value = string(runes[:len(runes)-1])
-			if targetField {
+			if a.launcherMode == launcherModeBrowse {
 				a.launcherInput = value
 			} else {
 				a.launcherPassword = value
 			}
 		}
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
-		a.launcherPromptPassword = !a.launcherPromptPassword
-		return
-	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		if a.launcherPromptPassword {
+		if a.launcherMode == launcherModePassword {
 			a.connectFromLauncher(a.pendingTarget)
 		} else {
 			a.connectFromLauncher(a.launcherInput)
@@ -80,7 +75,7 @@ func (a *App) syncLauncherInput() {
 	}
 	for _, r := range ebiten.AppendInputChars(nil) {
 		if r >= 32 && r != 127 {
-			if targetField {
+			if a.launcherMode == launcherModeBrowse {
 				a.launcherInput += string(r)
 			} else {
 				a.launcherPassword += string(r)
@@ -92,6 +87,11 @@ func (a *App) syncLauncherInput() {
 func (a *App) drawLauncher(screen *ebiten.Image) {
 	bounds := screen.Bounds()
 	screen.Fill(color.RGBA{R: 11, G: 16, B: 24, A: 255})
+
+	if a.launcherMode == launcherModePassword {
+		a.drawPasswordPrompt(screen)
+		return
+	}
 
 	drawText(screen, "JetKVM", 48, 42, 30, color.RGBA{R: 241, G: 245, B: 249, A: 255})
 	drawText(screen, "Available devices on your local network", 48, 72, 15, color.RGBA{R: 148, G: 163, B: 184, A: 255})
@@ -155,31 +155,10 @@ func (a *App) drawLauncher(screen *ebiten.Image) {
 		}
 	}
 
-	passY := inputY
-	if a.launcherPromptPassword {
-		passY = inputY - 64
-		drawText(screen, "Password required", 48, passY-18, 13, color.RGBA{R: 248, G: 113, B: 113, A: 255})
-		vector.DrawFilledRect(screen, 48, float32(passY), float32(listW), 40, color.RGBA{R: 15, G: 23, B: 34, A: 255}, false)
-		vector.StrokeRect(screen, 48, float32(passY), float32(listW), 40, 1, color.RGBA{R: 127, G: 29, B: 29, A: 180}, false)
-		passDisplay := strings.Repeat("*", len([]rune(a.launcherPassword)))
-		if passDisplay == "" {
-			drawText(screen, "Enter local password", 62, passY+12, 15, color.RGBA{R: 100, G: 116, B: 139, A: 255})
-		} else {
-			drawText(screen, passDisplay, 62, passY+12, 15, color.RGBA{R: 241, G: 245, B: 249, A: 255})
-		}
-		if time.Now().UnixMilli()/500%2 == 0 {
-			textW, _ := measureText(passDisplay, 15)
-			vector.DrawFilledRect(screen, float32(64+textW), float32(passY+8), 2, 20, color.RGBA{R: 248, G: 113, B: 113, A: 255}, false)
-		}
-	}
-
 	connectBtn := chromeButton{
 		id:      "launcher_connect",
-		enabled: validInput && (!a.launcherPromptPassword || strings.TrimSpace(a.launcherPassword) != ""),
+		enabled: validInput,
 		rect:    rect{x: 48 + listW - 128, y: inputY, w: 128, h: 40},
-	}
-	if a.launcherPromptPassword {
-		connectBtn.id = "launcher_retry_password"
 	}
 	a.launcherButtons = append(a.launcherButtons, connectBtn)
 	fill := color.RGBA{R: 37, G: 99, B: 235, A: 255}
@@ -198,6 +177,72 @@ func (a *App) drawLauncher(screen *ebiten.Image) {
 		drawWrappedText(screen, a.launcherError, 48, inputY+52, listW, 12, color.RGBA{R: 252, G: 165, B: 165, A: 255})
 	} else if strings.TrimSpace(a.launcherInput) != "" && !validInput {
 		drawWrappedText(screen, "Enter a valid hostname or IP address.", 48, inputY+52, listW, 12, color.RGBA{R: 252, G: 165, B: 165, A: 255})
+	}
+}
+
+func (a *App) drawPasswordPrompt(screen *ebiten.Image) {
+	bounds := screen.Bounds()
+	panelW := min(float64(bounds.Dx())-96, 620)
+	panelH := 230.0
+	panelX := (float64(bounds.Dx()) - panelW) / 2
+	panelY := (float64(bounds.Dy()) - panelH) / 2
+
+	drawText(screen, "JetKVM", panelX, panelY-56, 30, color.RGBA{R: 241, G: 245, B: 249, A: 255})
+	vector.DrawFilledRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{R: 15, G: 23, B: 34, A: 255}, false)
+	vector.StrokeRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), 1, color.RGBA{R: 71, G: 85, B: 105, A: 180}, false)
+
+	targetLabel := a.pendingTarget
+	if targetLabel == "" {
+		targetLabel = a.launcherInput
+	}
+	drawText(screen, "Password Required", panelX+24, panelY+26, 24, color.RGBA{R: 241, G: 245, B: 249, A: 255})
+	drawWrappedText(screen, "Enter the JetKVM local password for "+targetLabel+".", panelX+24, panelY+58, panelW-48, 14, color.RGBA{R: 148, G: 163, B: 184, A: 255})
+
+	fieldY := panelY + 112
+	vector.DrawFilledRect(screen, float32(panelX+24), float32(fieldY), float32(panelW-48), 44, color.RGBA{R: 11, G: 16, B: 24, A: 255}, false)
+	vector.StrokeRect(screen, float32(panelX+24), float32(fieldY), float32(panelW-48), 44, 1, color.RGBA{R: 127, G: 29, B: 29, A: 180}, false)
+	passDisplay := strings.Repeat("*", len([]rune(a.launcherPassword)))
+	if passDisplay == "" {
+		drawText(screen, "Local password", panelX+38, fieldY+14, 15, color.RGBA{R: 100, G: 116, B: 139, A: 255})
+	} else {
+		drawText(screen, passDisplay, panelX+38, fieldY+14, 15, color.RGBA{R: 241, G: 245, B: 249, A: 255})
+	}
+	if time.Now().UnixMilli()/500%2 == 0 {
+		textW, _ := measureText(passDisplay, 15)
+		vector.DrawFilledRect(screen, float32(panelX+40+textW), float32(fieldY+10), 2, 22, color.RGBA{R: 248, G: 113, B: 113, A: 255}, false)
+	}
+
+	a.launcherButtons = a.launcherButtons[:0]
+	backBtn := chromeButton{
+		id:      "launcher_back",
+		enabled: true,
+		rect:    rect{x: panelX + 24, y: panelY + 174, w: 110, h: 40},
+	}
+	connectBtn := chromeButton{
+		id:      "launcher_retry_password",
+		enabled: strings.TrimSpace(a.launcherPassword) != "",
+		rect:    rect{x: panelX + panelW - 152, y: panelY + 174, w: 128, h: 40},
+	}
+	a.launcherButtons = append(a.launcherButtons, backBtn, connectBtn)
+
+	vector.DrawFilledRect(screen, float32(backBtn.rect.x), float32(backBtn.rect.y), float32(backBtn.rect.w), float32(backBtn.rect.h), color.RGBA{R: 30, G: 41, B: 59, A: 255}, false)
+	vector.StrokeRect(screen, float32(backBtn.rect.x), float32(backBtn.rect.y), float32(backBtn.rect.w), float32(backBtn.rect.h), 1, color.RGBA{R: 71, G: 85, B: 105, A: 160}, false)
+	drawText(screen, "Back", backBtn.rect.x+34, backBtn.rect.y+12, 15, color.RGBA{R: 226, G: 232, B: 240, A: 255})
+
+	fill := color.RGBA{R: 37, G: 99, B: 235, A: 255}
+	stroke := color.RGBA{R: 147, G: 197, B: 253, A: 180}
+	textClr := color.RGBA{R: 239, G: 246, B: 255, A: 255}
+	if !connectBtn.enabled {
+		fill = color.RGBA{R: 30, G: 41, B: 59, A: 255}
+		stroke = color.RGBA{R: 71, G: 85, B: 105, A: 160}
+		textClr = color.RGBA{R: 148, G: 163, B: 184, A: 255}
+	}
+	vector.DrawFilledRect(screen, float32(connectBtn.rect.x), float32(connectBtn.rect.y), float32(connectBtn.rect.w), float32(connectBtn.rect.h), fill, false)
+	vector.StrokeRect(screen, float32(connectBtn.rect.x), float32(connectBtn.rect.y), float32(connectBtn.rect.w), float32(connectBtn.rect.h), 1, stroke, false)
+	drawText(screen, "Connect", connectBtn.rect.x+28, connectBtn.rect.y+12, 15, textClr)
+
+	if a.launcherError != "" {
+		drawWrappedText(screen, a.launcherError, panelX+24, panelY+222, panelW-48, 12, color.RGBA{R: 252, G: 165, B: 165, A: 255})
 	}
 }
 

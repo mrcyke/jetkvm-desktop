@@ -258,3 +258,55 @@ func TestCloseSettingsOverlayArmsDismissSuppression(t *testing.T) {
 		t.Fatal("expected keyboard suppression after closing settings")
 	}
 }
+
+func TestNewLauncherStartsInBrowseMode(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !app.launcherOpen {
+		t.Fatal("expected launcher to be open without a target")
+	}
+	if app.launcherMode != launcherModeBrowse {
+		t.Fatalf("launcher mode = %q, want browse", app.launcherMode)
+	}
+}
+
+func TestConnectFromLauncherKeepsPasswordScreenOpen(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.launcherOpen = true
+	app.launcherMode = launcherModePassword
+	app.launcherPassword = "secret"
+
+	app.connectFromLauncher("192.168.1.50")
+
+	if !app.launcherOpen {
+		t.Fatal("expected password screen to stay open while reconnecting")
+	}
+	if app.pendingTarget != "http://192.168.1.50" {
+		t.Fatalf("pending target = %q, want normalized target", app.pendingTarget)
+	}
+}
+
+func TestShowPasswordPromptSwitchesLauncherMode(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.launcherOpen = false
+	app.launcherMode = launcherModeBrowse
+	app.showPasswordPrompt("http://jetkvm.local", "Password required for http://jetkvm.local")
+
+	if !app.launcherOpen {
+		t.Fatal("expected launcher to open")
+	}
+	if app.launcherMode != launcherModePassword {
+		t.Fatalf("launcher mode = %q, want password", app.launcherMode)
+	}
+	if app.pendingTarget != "http://jetkvm.local" {
+		t.Fatalf("pending target = %q, want http://jetkvm.local", app.pendingTarget)
+	}
+}
