@@ -3,6 +3,8 @@ package client
 import (
 	"testing"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 )
 
 func TestComputeSmoothedRates(t *testing.T) {
@@ -26,5 +28,50 @@ func TestComputeSmoothedRatesHandlesShortHistory(t *testing.T) {
 	bitrateKbps, fps := computeSmoothedRates([]statsSample{{at: time.Unix(1000, 0)}})
 	if bitrateKbps != 0 || fps != 0 {
 		t.Fatalf("expected zero rates, got bitrate=%v fps=%v", bitrateKbps, fps)
+	}
+}
+
+func TestHandleTransportDisconnectEmitsLifecycleAndCloses(t *testing.T) {
+	c, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c.handleTransportDisconnect(webrtc.PeerConnectionStateDisconnected)
+
+	select {
+	case evt := <-c.Lifecycle():
+		if evt.Type != "peer_state" {
+			t.Fatalf("expected peer_state event, got %q", evt.Type)
+		}
+		if evt.Connection != webrtc.PeerConnectionStateDisconnected {
+			t.Fatalf("expected disconnected state, got %s", evt.Connection)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for lifecycle event")
+	}
+
+	select {
+	case <-c.closeCh:
+	case <-time.After(time.Second):
+		t.Fatal("expected client to close after transport disconnect")
+	}
+}
+
+func TestHandleTransportDisconnectNoopsAfterClose(t *testing.T) {
+	c, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	c.handleTransportDisconnect(webrtc.PeerConnectionStateDisconnected)
+
+	select {
+	case evt := <-c.Lifecycle():
+		t.Fatalf("unexpected lifecycle event after close: %+v", evt)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

@@ -81,6 +81,7 @@ type Client struct {
 	signalMode     SignalingMode
 	statsMu        sync.Mutex
 	statsHistory   []statsSample
+	disconnectOnce sync.Once
 	lastError      atomic.Value
 }
 
@@ -158,6 +159,11 @@ func (c *Client) Connect(ctx context.Context) error {
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		c.emitLifecycle(LifecycleEvent{Type: "peer_state", Connection: state})
 	})
+	if sctp := pc.SCTP(); sctp != nil {
+		sctp.OnClose(func(err error) {
+			c.handleTransportDisconnect(webrtc.PeerConnectionStateDisconnected)
+		})
+	}
 
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		stream, err := video.AttachRemoteTrack(ctx, track)
@@ -250,6 +256,20 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	c.emitLifecycle(LifecycleEvent{Type: "connected"})
 	return nil
+}
+
+func (c *Client) handleTransportDisconnect(state webrtc.PeerConnectionState) {
+	select {
+	case <-c.closeCh:
+		return
+	default:
+	}
+	c.disconnectOnce.Do(func() {
+		c.emitLifecycle(LifecycleEvent{Type: "peer_state", Connection: state})
+		go func() {
+			_ = c.Close()
+		}()
+	})
 }
 
 func (c *Client) Close() error {
