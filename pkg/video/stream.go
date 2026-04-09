@@ -25,6 +25,7 @@ type Frame struct {
 type Stream struct {
 	mu         sync.RWMutex
 	latest     *Frame
+	lastErr    error
 	frameCh    chan Frame
 	closeOnce  sync.Once
 	cancelFunc context.CancelFunc
@@ -41,6 +42,12 @@ func (s *Stream) Latest() *Frame {
 	return s.latest
 }
 
+func (s *Stream) Err() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastErr
+}
+
 func (s *Stream) publish(frame Frame) {
 	s.mu.Lock()
 	s.latest = &frame
@@ -50,6 +57,12 @@ func (s *Stream) publish(frame Frame) {
 	case s.frameCh <- frame:
 	default:
 	}
+}
+
+func (s *Stream) setError(err error) {
+	s.mu.Lock()
+	s.lastErr = err
+	s.mu.Unlock()
 }
 
 func (s *Stream) Frames() <-chan Frame {
@@ -87,11 +100,10 @@ func AttachRemoteTrack(parent context.Context, track *webrtc.TrackRemote) (*Stre
 	go func() {
 		defer stream.Close()
 
-		// Screen-content H.264 keyframes can span far more than 32 RTP packets.
-		// A too-small samplebuilder buffer drops fragmented access units before the
-		// decoder ever sees a complete frame, which showed up as intermittent
-		// "no first frame" failures on slower CI runners.
-		sb := samplebuilder.New(512, &codecs.H264Packet{}, track.Codec().ClockRate)
+		// Screen-content H.264 keyframes can span well over hundreds of RTP packets,
+		// especially on real 1080p devices. A too-small samplebuilder buffer drops
+		// fragmented access units before the decoder ever sees a complete frame.
+		sb := samplebuilder.New(4096, &codecs.H264Packet{}, track.Codec().ClockRate)
 		for {
 			select {
 			case <-ctx.Done():
@@ -115,7 +127,8 @@ func AttachRemoteTrack(parent context.Context, track *webrtc.TrackRemote) (*Stre
 				}
 				img, err := decoder.Decode(payload)
 				if err != nil {
-					return
+					stream.setError(err)
+					continue
 				}
 				if img != nil {
 					stream.publish(Frame{Image: img, At: time.Now()})
