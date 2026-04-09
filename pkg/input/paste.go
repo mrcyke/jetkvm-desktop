@@ -96,6 +96,7 @@ func InvalidRunesString(invalid []rune) string {
 }
 
 func normalizeLayout(layout string) string {
+	layout = strings.ReplaceAll(layout, "-", "_")
 	switch layout {
 	case "", "en_US", "en_UK", "da_DK", "de_DE", "fr_FR", "es_ES", "it_IT", "ja_JP":
 		return layout

@@ -907,22 +907,22 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
 		})
-	case "layout:en_US":
-		a.invokeKeyboardLayoutAction("en_US")
-	case "layout:en_UK":
-		a.invokeKeyboardLayoutAction("en_UK")
-	case "layout:da_DK":
-		a.invokeKeyboardLayoutAction("da_DK")
-	case "layout:de_DE":
-		a.invokeKeyboardLayoutAction("de_DE")
-	case "layout:fr_FR":
-		a.invokeKeyboardLayoutAction("fr_FR")
-	case "layout:es_ES":
-		a.invokeKeyboardLayoutAction("es_ES")
-	case "layout:it_IT":
-		a.invokeKeyboardLayoutAction("it_IT")
-	case "layout:ja_JP":
-		a.invokeKeyboardLayoutAction("ja_JP")
+	case "layout:en-US":
+		a.invokeKeyboardLayoutAction("en-US")
+	case "layout:en-UK":
+		a.invokeKeyboardLayoutAction("en-UK")
+	case "layout:da-DK":
+		a.invokeKeyboardLayoutAction("da-DK")
+	case "layout:de-DE":
+		a.invokeKeyboardLayoutAction("de-DE")
+	case "layout:fr-FR":
+		a.invokeKeyboardLayoutAction("fr-FR")
+	case "layout:es-ES":
+		a.invokeKeyboardLayoutAction("es-ES")
+	case "layout:it-IT":
+		a.invokeKeyboardLayoutAction("it-IT")
+	case "layout:ja-JP":
+		a.invokeKeyboardLayoutAction("ja-JP")
 	default:
 		if strings.HasPrefix(id, "discover:") {
 			a.connectFromLauncher(strings.TrimPrefix(id, "discover:"))

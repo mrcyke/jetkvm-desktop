@@ -147,12 +147,68 @@ func TestControllerReceivesVideoAndForwardsInput(t *testing.T) {
 	t.Fatalf("expected keypress, pointer, mouse, and wheel inputs, got %+v", srv.Inputs())
 }
 
+func TestControllerSetQualitySucceedsWhenWriteAckIsDropped(t *testing.T) {
+	srv, ctx, cancel := startFaultedEmulator(t, emulator.FaultConfig{
+		ApplyButDropRPCMethod: "setStreamQualityFactor",
+	})
+	defer cancel()
+
+	controller := New(Config{
+		BaseURL:         srv.BaseURL(),
+		Password:        "secret",
+		RPCTimeout:      300 * time.Millisecond,
+		MutationTimeout: 2 * time.Second,
+		Reconnect:       true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+	if err := controller.SetQuality(0.5); err != nil {
+		t.Fatalf("SetQuality returned error: %v", err)
+	}
+	if got := controller.Snapshot().Quality; got != 0.5 {
+		t.Fatalf("snapshot quality = %v, want 0.5", got)
+	}
+}
+
+func TestControllerSetKeyboardLayoutSucceedsWhenWriteAckIsDropped(t *testing.T) {
+	srv, ctx, cancel := startFaultedEmulator(t, emulator.FaultConfig{
+		ApplyButDropRPCMethod: "setKeyboardLayout",
+	})
+	defer cancel()
+
+	controller := New(Config{
+		BaseURL:         srv.BaseURL(),
+		Password:        "secret",
+		RPCTimeout:      300 * time.Millisecond,
+		MutationTimeout: 2 * time.Second,
+		Reconnect:       true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+	if err := controller.SetKeyboardLayout("da-DK"); err != nil {
+		t.Fatalf("SetKeyboardLayout returned error: %v", err)
+	}
+	if got := controller.Snapshot().KeyboardLayout; got != "da-DK" {
+		t.Fatalf("snapshot keyboard layout = %q, want da-DK", got)
+	}
+}
+
 func startEmulator(t *testing.T) (*emulator.Server, context.Context, context.CancelFunc) {
+	t.Helper()
+	return startFaultedEmulator(t, emulator.FaultConfig{})
+}
+
+func startFaultedEmulator(t *testing.T, faults emulator.FaultConfig) (*emulator.Server, context.Context, context.CancelFunc) {
 	t.Helper()
 	srv, err := emulator.NewServer(emulator.Config{
 		ListenAddr: "127.0.0.1:0",
 		AuthMode:   emulator.AuthModePassword,
 		Password:   "secret",
+		Faults:     faults,
 	})
 	if err != nil {
 		t.Fatal(err)

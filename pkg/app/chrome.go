@@ -881,7 +881,7 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 	drawText(screen, "Active layout", x+16, y+78, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	layout := snap.KeyboardLayout
 	if layout == "" {
-		layout = "en_US"
+		layout = "en-US"
 	}
 	layoutState := a.settingsAction(settingsGroupKeyboardLayout)
 	drawText(screen, layout, x+118, y+78, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
@@ -891,14 +891,14 @@ func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, 
 		id    string
 		label string
 	}{
-		{id: "layout:en_US", label: "US"},
-		{id: "layout:en_UK", label: "UK"},
-		{id: "layout:da_DK", label: "Danish"},
-		{id: "layout:de_DE", label: "German"},
-		{id: "layout:fr_FR", label: "French"},
-		{id: "layout:es_ES", label: "Spanish"},
-		{id: "layout:it_IT", label: "Italian"},
-		{id: "layout:ja_JP", label: "Japanese"},
+		{id: "layout:en-US", label: "US"},
+		{id: "layout:en-UK", label: "UK"},
+		{id: "layout:da-DK", label: "Danish"},
+		{id: "layout:de-DE", label: "German"},
+		{id: "layout:fr-FR", label: "French"},
+		{id: "layout:es-ES", label: "Spanish"},
+		{id: "layout:it-IT", label: "Italian"},
+		{id: "layout:ja-JP", label: "Japanese"},
 	}
 	rowX := x + 16
 	rowY := y + 142

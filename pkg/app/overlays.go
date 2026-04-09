@@ -340,7 +340,7 @@ func (a *App) drawPasteOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	drawWrappedText(screen, "Send clipboard text to the remote host using keyboard macro steps over HID-RPC. Unsupported characters are skipped.", panelX+22, panelY+48, panelW-44, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 
 	drawText(screen, "Keyboard Layout", panelX+22, panelY+88, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	drawText(screen, fallbackLabel(snap.KeyboardLayout, "en_US"), panelX+132, panelY+88, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawText(screen, fallbackLabel(snap.KeyboardLayout, "en-US"), panelX+132, panelY+88, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	drawText(screen, "Delay", panelX+246, panelY+88, 13, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	drawText(screen, fmt.Sprintf("%dms", a.pasteDelay), panelX+286, panelY+88, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 

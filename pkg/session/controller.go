@@ -170,7 +170,13 @@ func (c *Controller) Reboot() error {
 }
 
 func (c *Controller) SetQuality(value float64) error {
-	if err := c.mutate("setStreamQualityFactor", map[string]any{"factor": value}, nil); err != nil {
+	if err := c.mutateAndConfirm("setStreamQualityFactor", map[string]any{"factor": value}, func(ctx context.Context) (bool, error) {
+		var current float64
+		if err := c.call(ctx, "getStreamQualityFactor", nil, &current); err != nil {
+			return false, err
+		}
+		return current == value, nil
+	}); err != nil {
 		return err
 	}
 	c.setState(func(s *Snapshot) {
@@ -180,10 +186,17 @@ func (c *Controller) SetQuality(value float64) error {
 }
 
 func (c *Controller) SetKeyboardLayout(layout string) error {
+	layout = normalizeKeyboardLayoutCode(layout)
 	if layout == "" {
 		return errors.New("keyboard layout is required")
 	}
-	if err := c.mutate("setKeyboardLayout", map[string]any{"layout": layout}, nil); err != nil {
+	if err := c.mutateAndConfirm("setKeyboardLayout", map[string]any{"layout": layout}, func(ctx context.Context) (bool, error) {
+		var current string
+		if err := c.call(ctx, "getKeyboardLayout", nil, &current); err != nil {
+			return false, err
+		}
+		return normalizeKeyboardLayoutCode(current) == layout, nil
+	}); err != nil {
 		return err
 	}
 	c.setState(func(s *Snapshot) {
@@ -196,29 +209,62 @@ func (c *Controller) SetTLSMode(mode string) error {
 	if mode == "" {
 		return errors.New("tls mode is required")
 	}
-	return c.mutate("setTLSState", map[string]any{
+	return c.mutateAndConfirm("setTLSState", map[string]any{
 		"state": map[string]any{"mode": mode},
-	}, nil)
+	}, func(ctx context.Context) (bool, error) {
+		var state struct {
+			Mode string `json:"mode"`
+		}
+		if err := c.call(ctx, "getTLSState", nil, &state); err != nil {
+			return false, err
+		}
+		return state.Mode == mode, nil
+	})
 }
 
 func (c *Controller) SetDisplayRotation(rotation string) error {
 	if rotation == "" {
 		return errors.New("display rotation is required")
 	}
-	return c.mutate("setDisplayRotation", map[string]any{
+	return c.mutateAndConfirm("setDisplayRotation", map[string]any{
 		"params": map[string]any{"rotation": rotation},
-	}, nil)
+	}, func(ctx context.Context) (bool, error) {
+		var state struct {
+			Rotation string `json:"rotation"`
+		}
+		if err := c.call(ctx, "getDisplayRotation", nil, &state); err != nil {
+			return false, err
+		}
+		return state.Rotation == rotation, nil
+	})
 }
 
 func (c *Controller) SetUSBEmulation(enabled bool) error {
-	return c.mutate("setUsbEmulationState", map[string]any{"enabled": enabled}, nil)
+	return c.mutateAndConfirm("setUsbEmulationState", map[string]any{"enabled": enabled}, func(ctx context.Context) (bool, error) {
+		var current bool
+		if err := c.call(ctx, "getUsbEmulationState", nil, &current); err != nil {
+			return false, err
+		}
+		return current == enabled, nil
+	})
 }
 
 func (c *Controller) SetNetworkSettings(settings map[string]any) error {
 	if len(settings) == 0 {
 		return errors.New("network settings are required")
 	}
-	return c.mutate("setNetworkSettings", map[string]any{"settings": settings}, nil)
+	return c.mutateAndConfirm("setNetworkSettings", map[string]any{"settings": settings}, func(ctx context.Context) (bool, error) {
+		var current map[string]any
+		if err := c.call(ctx, "getNetworkSettings", nil, &current); err != nil {
+			return false, err
+		}
+		for key, want := range settings {
+			if current[key] != want {
+				return false, nil
+			}
+		}
+		return true, nil
+	})
 }
 
 func (c *Controller) SendKeypress(key byte, press bool) error {
@@ -419,7 +465,7 @@ func (c *Controller) bootstrap(ctx context.Context, cl *client.Client) error {
 		c.setState(func(s *Snapshot) { s.Quality = quality })
 	}
 	if err := cl.Call(ctx, "getKeyboardLayout", nil, &keyboardLayout); err == nil {
-		c.setState(func(s *Snapshot) { s.KeyboardLayout = keyboardLayout })
+		c.setState(func(s *Snapshot) { s.KeyboardLayout = normalizeKeyboardLayoutCode(keyboardLayout) })
 	}
 	if err := cl.Call(ctx, "getEDID", nil, &edid); err == nil {
 		c.setState(func(s *Snapshot) { s.EDID = edid })
@@ -569,6 +615,44 @@ func (c *Controller) mutate(method string, params map[string]any, out any) error
 	return c.call(withTimeout(context.Background(), c.cfg.MutationTimeout), method, params, out)
 }
 
+func (c *Controller) mutateAndConfirm(method string, params map[string]any, confirm func(context.Context) (bool, error)) error {
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.MutationTimeout)
+	defer cancel()
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- c.call(ctx, method, params, nil)
+	}()
+
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-resultCh:
+			if err == nil {
+				return nil
+			}
+			confirmed, confirmErr := confirm(withTimeout(context.Background(), c.cfg.RPCTimeout))
+			if confirmErr == nil && confirmed {
+				return nil
+			}
+			return err
+		case <-ticker.C:
+			confirmed, err := confirm(withTimeout(context.Background(), c.cfg.RPCTimeout))
+			if err == nil && confirmed {
+				return nil
+			}
+		case <-ctx.Done():
+			confirmed, err := confirm(withTimeout(context.Background(), c.cfg.RPCTimeout))
+			if err == nil && confirmed {
+				return nil
+			}
+			return ctx.Err()
+		}
+	}
+}
+
 func (c *Controller) Query(ctx context.Context, method string, params map[string]any, out any) error {
 	return c.call(ctx, method, params, out)
 }
@@ -604,6 +688,20 @@ func withTimeout(ctx context.Context, d time.Duration) context.Context {
 func isAuthError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unauthorized") || strings.Contains(msg, "login failed")
+}
+
+func normalizeKeyboardLayoutCode(layout string) string {
+	layout = strings.TrimSpace(layout)
+	if layout == "" {
+		return ""
+	}
+	layout = strings.ReplaceAll(layout, "_", "-")
+	switch layout {
+	case "en-US", "en-UK", "da-DK", "de-DE", "fr-FR", "es-ES", "it-IT", "ja-JP":
+		return layout
+	default:
+		return layout
+	}
 }
 
 func extractString(v any, key string) string {

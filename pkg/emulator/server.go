@@ -39,11 +39,12 @@ type Config struct {
 }
 
 type FaultConfig struct {
-	RPCDelay          time.Duration
-	DropRPCMethod     string
-	DisconnectAfter   time.Duration
-	HIDHandshakeDelay time.Duration
-	InitialVideoState string
+	RPCDelay              time.Duration
+	DropRPCMethod         string
+	ApplyButDropRPCMethod string
+	DisconnectAfter       time.Duration
+	HIDHandshakeDelay     time.Duration
+	InitialVideoState     string
 }
 
 type DeviceState struct {
@@ -673,6 +674,7 @@ func (s *session) handleRPC(data []byte) error {
 	if method := s.serverRef.cfg.Faults.DropRPCMethod; method != "" && method == req.Method {
 		return nil
 	}
+	applyButDrop := s.serverRef.cfg.Faults.ApplyButDropRPCMethod
 
 	var resp jsonrpc.Response
 	switch req.Method {
@@ -691,6 +693,9 @@ func (s *session) handleRPC(data []byte) error {
 			if hostname, ok := settings["hostname"].(string); ok && hostname != "" {
 				s.serverRef.state.Hostname = hostname
 			}
+			if applyButDrop == req.Method {
+				return nil
+			}
 		}
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "getKeyboardLedState":
@@ -702,6 +707,9 @@ func (s *session) handleRPC(data []byte) error {
 	case "setStreamQualityFactor":
 		if factor, ok := req.Params["factor"].(float64); ok {
 			s.serverRef.state.StreamQualityFactor = factor
+			if applyButDrop == req.Method {
+				return nil
+			}
 			resp = jsonrpc.NewResponse(req.ID, true)
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing factor", nil)
@@ -738,6 +746,9 @@ func (s *session) handleRPC(data []byte) error {
 	case "setKeyboardLayout":
 		if layout, ok := req.Params["layout"].(string); ok && layout != "" {
 			s.serverRef.state.KeyboardLayout = layout
+			if applyButDrop == req.Method {
+				return nil
+			}
 		}
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "getEDID":
@@ -747,6 +758,9 @@ func (s *session) handleRPC(data []byte) error {
 	case "setUsbEmulationState":
 		if enabled, ok := req.Params["enabled"].(bool); ok {
 			s.serverRef.state.USBEmulation = enabled
+			if applyButDrop == req.Method {
+				return nil
+			}
 			resp = jsonrpc.NewResponse(req.ID, enabled)
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
@@ -759,6 +773,9 @@ func (s *session) handleRPC(data []byte) error {
 		if state, ok := req.Params["state"].(map[string]any); ok {
 			if mode, ok := state["mode"].(string); ok && mode != "" {
 				s.serverRef.state.TLSMode = mode
+				if applyButDrop == req.Method {
+					return nil
+				}
 				resp = jsonrpc.NewResponse(req.ID, true)
 			} else {
 				resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing mode", nil)
@@ -776,6 +793,9 @@ func (s *session) handleRPC(data []byte) error {
 		if params, ok := req.Params["params"].(map[string]any); ok {
 			if rotation, ok := params["rotation"].(string); ok && rotation != "" {
 				s.serverRef.state.DisplayRotation = rotation
+				if applyButDrop == req.Method {
+					return nil
+				}
 				resp = jsonrpc.NewResponse(req.ID, true)
 			} else {
 				resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing rotation", nil)
