@@ -107,11 +107,11 @@ func (i *launcherMode) UnmarshalText(text []byte) error {
 	return err
 }
 
-const _settingsActionGroupName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejigglerlocal_authmqtt_savemqtt_test"
+const _settingsActionGroupName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keyjigglerlocal_authmqtt_savemqtt_test"
 
-var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 36, 52, 65, 76, 87, 101, 108, 118, 127, 136}
+var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 39, 49, 57, 73, 82, 93, 106, 117, 128, 141, 155, 166, 179, 186, 193, 203, 212, 221}
 
-const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejigglerlocal_authmqtt_savemqtt_test"
+const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keyjigglerlocal_authmqtt_savemqtt_test"
 
 func (i settingsActionGroup) String() string {
 	if i >= settingsActionGroup(len(_settingsActionGroupIndex)-1) {
@@ -126,60 +126,92 @@ func _settingsActionGroupNoOp() {
 	var x [1]struct{}
 	_ = x[settingsGroupKeyboardLayout-(0)]
 	_ = x[settingsGroupVideoQuality-(1)]
-	_ = x[settingsGroupTLSMode-(2)]
-	_ = x[settingsGroupDisplayRotate-(3)]
-	_ = x[settingsGroupUSBEmulation-(4)]
-	_ = x[settingsGroupUSBDevices-(5)]
-	_ = x[settingsGroupAutoUpdate-(6)]
-	_ = x[settingsGroupDeveloperMode-(7)]
-	_ = x[settingsGroupJiggler-(8)]
-	_ = x[settingsGroupLocalAuth-(9)]
-	_ = x[settingsGroupMQTTSave-(10)]
-	_ = x[settingsGroupMQTTTest-(11)]
+	_ = x[settingsGroupVideoCodec-(2)]
+	_ = x[settingsGroupVideoEDID-(3)]
+	_ = x[settingsGroupTLSMode-(4)]
+	_ = x[settingsGroupDisplayRotate-(5)]
+	_ = x[settingsGroupBacklight-(6)]
+	_ = x[settingsGroupVideoSleep-(7)]
+	_ = x[settingsGroupUSBEmulation-(8)]
+	_ = x[settingsGroupUSBDevices-(9)]
+	_ = x[settingsGroupAutoUpdate-(10)]
+	_ = x[settingsGroupUpdateStatus-(11)]
+	_ = x[settingsGroupDeveloperMode-(12)]
+	_ = x[settingsGroupDevChannel-(13)]
+	_ = x[settingsGroupLoopbackOnly-(14)]
+	_ = x[settingsGroupSSHKey-(15)]
+	_ = x[settingsGroupJiggler-(16)]
+	_ = x[settingsGroupLocalAuth-(17)]
+	_ = x[settingsGroupMQTTSave-(18)]
+	_ = x[settingsGroupMQTTTest-(19)]
 }
 
-var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupDeveloperMode, settingsGroupJiggler, settingsGroupLocalAuth, settingsGroupMQTTSave, settingsGroupMQTTTest}
+var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupVideoCodec, settingsGroupVideoEDID, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupBacklight, settingsGroupVideoSleep, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupUpdateStatus, settingsGroupDeveloperMode, settingsGroupDevChannel, settingsGroupLoopbackOnly, settingsGroupSSHKey, settingsGroupJiggler, settingsGroupLocalAuth, settingsGroupMQTTSave, settingsGroupMQTTTest}
 
 var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupName[0:15]:         settingsGroupKeyboardLayout,
 	_settingsActionGroupLowerName[0:15]:    settingsGroupKeyboardLayout,
 	_settingsActionGroupName[15:28]:        settingsGroupVideoQuality,
 	_settingsActionGroupLowerName[15:28]:   settingsGroupVideoQuality,
-	_settingsActionGroupName[28:36]:        settingsGroupTLSMode,
-	_settingsActionGroupLowerName[28:36]:   settingsGroupTLSMode,
-	_settingsActionGroupName[36:52]:        settingsGroupDisplayRotate,
-	_settingsActionGroupLowerName[36:52]:   settingsGroupDisplayRotate,
-	_settingsActionGroupName[52:65]:        settingsGroupUSBEmulation,
-	_settingsActionGroupLowerName[52:65]:   settingsGroupUSBEmulation,
-	_settingsActionGroupName[65:76]:        settingsGroupUSBDevices,
-	_settingsActionGroupLowerName[65:76]:   settingsGroupUSBDevices,
-	_settingsActionGroupName[76:87]:        settingsGroupAutoUpdate,
-	_settingsActionGroupLowerName[76:87]:   settingsGroupAutoUpdate,
-	_settingsActionGroupName[87:101]:       settingsGroupDeveloperMode,
-	_settingsActionGroupLowerName[87:101]:  settingsGroupDeveloperMode,
-	_settingsActionGroupName[101:108]:      settingsGroupJiggler,
-	_settingsActionGroupLowerName[101:108]: settingsGroupJiggler,
-	_settingsActionGroupName[108:118]:      settingsGroupLocalAuth,
-	_settingsActionGroupLowerName[108:118]: settingsGroupLocalAuth,
-	_settingsActionGroupName[118:127]:      settingsGroupMQTTSave,
-	_settingsActionGroupLowerName[118:127]: settingsGroupMQTTSave,
-	_settingsActionGroupName[127:136]:      settingsGroupMQTTTest,
-	_settingsActionGroupLowerName[127:136]: settingsGroupMQTTTest,
+	_settingsActionGroupName[28:39]:        settingsGroupVideoCodec,
+	_settingsActionGroupLowerName[28:39]:   settingsGroupVideoCodec,
+	_settingsActionGroupName[39:49]:        settingsGroupVideoEDID,
+	_settingsActionGroupLowerName[39:49]:   settingsGroupVideoEDID,
+	_settingsActionGroupName[49:57]:        settingsGroupTLSMode,
+	_settingsActionGroupLowerName[49:57]:   settingsGroupTLSMode,
+	_settingsActionGroupName[57:73]:        settingsGroupDisplayRotate,
+	_settingsActionGroupLowerName[57:73]:   settingsGroupDisplayRotate,
+	_settingsActionGroupName[73:82]:        settingsGroupBacklight,
+	_settingsActionGroupLowerName[73:82]:   settingsGroupBacklight,
+	_settingsActionGroupName[82:93]:        settingsGroupVideoSleep,
+	_settingsActionGroupLowerName[82:93]:   settingsGroupVideoSleep,
+	_settingsActionGroupName[93:106]:       settingsGroupUSBEmulation,
+	_settingsActionGroupLowerName[93:106]:  settingsGroupUSBEmulation,
+	_settingsActionGroupName[106:117]:      settingsGroupUSBDevices,
+	_settingsActionGroupLowerName[106:117]: settingsGroupUSBDevices,
+	_settingsActionGroupName[117:128]:      settingsGroupAutoUpdate,
+	_settingsActionGroupLowerName[117:128]: settingsGroupAutoUpdate,
+	_settingsActionGroupName[128:141]:      settingsGroupUpdateStatus,
+	_settingsActionGroupLowerName[128:141]: settingsGroupUpdateStatus,
+	_settingsActionGroupName[141:155]:      settingsGroupDeveloperMode,
+	_settingsActionGroupLowerName[141:155]: settingsGroupDeveloperMode,
+	_settingsActionGroupName[155:166]:      settingsGroupDevChannel,
+	_settingsActionGroupLowerName[155:166]: settingsGroupDevChannel,
+	_settingsActionGroupName[166:179]:      settingsGroupLoopbackOnly,
+	_settingsActionGroupLowerName[166:179]: settingsGroupLoopbackOnly,
+	_settingsActionGroupName[179:186]:      settingsGroupSSHKey,
+	_settingsActionGroupLowerName[179:186]: settingsGroupSSHKey,
+	_settingsActionGroupName[186:193]:      settingsGroupJiggler,
+	_settingsActionGroupLowerName[186:193]: settingsGroupJiggler,
+	_settingsActionGroupName[193:203]:      settingsGroupLocalAuth,
+	_settingsActionGroupLowerName[193:203]: settingsGroupLocalAuth,
+	_settingsActionGroupName[203:212]:      settingsGroupMQTTSave,
+	_settingsActionGroupLowerName[203:212]: settingsGroupMQTTSave,
+	_settingsActionGroupName[212:221]:      settingsGroupMQTTTest,
+	_settingsActionGroupLowerName[212:221]: settingsGroupMQTTTest,
 }
 
 var _settingsActionGroupNames = []string{
 	_settingsActionGroupName[0:15],
 	_settingsActionGroupName[15:28],
-	_settingsActionGroupName[28:36],
-	_settingsActionGroupName[36:52],
-	_settingsActionGroupName[52:65],
-	_settingsActionGroupName[65:76],
-	_settingsActionGroupName[76:87],
-	_settingsActionGroupName[87:101],
-	_settingsActionGroupName[101:108],
-	_settingsActionGroupName[108:118],
-	_settingsActionGroupName[118:127],
-	_settingsActionGroupName[127:136],
+	_settingsActionGroupName[28:39],
+	_settingsActionGroupName[39:49],
+	_settingsActionGroupName[49:57],
+	_settingsActionGroupName[57:73],
+	_settingsActionGroupName[73:82],
+	_settingsActionGroupName[82:93],
+	_settingsActionGroupName[93:106],
+	_settingsActionGroupName[106:117],
+	_settingsActionGroupName[117:128],
+	_settingsActionGroupName[128:141],
+	_settingsActionGroupName[141:155],
+	_settingsActionGroupName[155:166],
+	_settingsActionGroupName[166:179],
+	_settingsActionGroupName[179:186],
+	_settingsActionGroupName[186:193],
+	_settingsActionGroupName[193:203],
+	_settingsActionGroupName[203:212],
+	_settingsActionGroupName[212:221],
 }
 
 // settingsActionGroupString retrieves an enum value from the enum constants string name.

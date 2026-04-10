@@ -52,6 +52,20 @@ func (c *Client) GetEDID(ctx context.Context) (string, error) {
 	return edid, err
 }
 
+func (c *Client) SetEDID(ctx context.Context, edid string) error {
+	return c.Call(ctx, "setEDID", setEDIDRequest{EDID: edid}, nil)
+}
+
+func (c *Client) GetVideoCodecPreference(ctx context.Context) (string, error) {
+	var codec string
+	err := c.Call(ctx, "getVideoCodecPreference", nil, &codec)
+	return codec, err
+}
+
+func (c *Client) SetVideoCodecPreference(ctx context.Context, codec string) error {
+	return c.Call(ctx, "setVideoCodecPreference", setCodecPreferenceRequest{Codec: codec}, nil)
+}
+
 func (c *Client) GetLocalVersion(ctx context.Context) (LocalVersion, error) {
 	var version LocalVersion
 	err := c.Call(ctx, "getLocalVersion", nil, &version)
@@ -62,6 +76,26 @@ func (c *Client) GetUpdateStatus(ctx context.Context) (UpdateStatus, error) {
 	var status UpdateStatus
 	err := c.Call(ctx, "getUpdateStatus", nil, &status)
 	return status, err
+}
+
+func (c *Client) GetBacklightSettings(ctx context.Context) (BacklightSettings, error) {
+	var settings BacklightSettings
+	err := c.Call(ctx, "getBacklightSettings", nil, &settings)
+	return settings, err
+}
+
+func (c *Client) SetBacklightSettings(ctx context.Context, settings BacklightSettings) error {
+	return c.Call(ctx, "setBacklightSettings", setBacklightSettingsRequest{Params: settings}, nil)
+}
+
+func (c *Client) GetVideoSleepMode(ctx context.Context) (VideoSleepMode, error) {
+	var state VideoSleepMode
+	err := c.Call(ctx, "getVideoSleepMode", nil, &state)
+	return state, err
+}
+
+func (c *Client) SetVideoSleepMode(ctx context.Context, duration int) error {
+	return c.Call(ctx, "setVideoSleepMode", setVideoSleepModeRequest{Duration: duration}, nil)
 }
 
 func (c *Client) GetMQTTSettings(ctx context.Context) (MQTTSettings, error) {
@@ -172,6 +206,48 @@ func (c *Client) GetDeveloperModeState(ctx context.Context) (DeveloperModeState,
 	var state DeveloperModeState
 	err := c.Call(ctx, "getDevModeState", nil, &state)
 	return state, err
+}
+
+func (c *Client) GetDevChannelState(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := c.Call(ctx, "getDevChannelState", nil, &enabled)
+	return enabled, err
+}
+
+func (c *Client) SetDevChannelState(ctx context.Context, enabled bool) error {
+	return c.Call(ctx, "setDevChannelState", enabledStateRequest{Enabled: enabled}, nil)
+}
+
+func (c *Client) GetLocalLoopbackOnly(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := c.Call(ctx, "getLocalLoopbackOnly", nil, &enabled)
+	return enabled, err
+}
+
+func (c *Client) SetLocalLoopbackOnly(ctx context.Context, enabled bool) error {
+	return c.Call(ctx, "setLocalLoopbackOnly", enabledStateRequest{Enabled: enabled}, nil)
+}
+
+func (c *Client) GetSSHKeyState(ctx context.Context) (string, error) {
+	var sshKey string
+	err := c.Call(ctx, "getSSHKeyState", nil, &sshKey)
+	return sshKey, err
+}
+
+func (c *Client) SetSSHKeyState(ctx context.Context, sshKey string) error {
+	return c.Call(ctx, "setSSHKeyState", setSSHKeyStateRequest{SSHKey: sshKey}, nil)
+}
+
+func (c *Client) GetKeyboardMacros(ctx context.Context) ([]KeyboardMacro, error) {
+	var macros []KeyboardMacro
+	err := c.Call(ctx, "getKeyboardMacros", nil, &macros)
+	return macros, err
+}
+
+func (c *Client) SetKeyboardMacros(ctx context.Context, macros []KeyboardMacro) error {
+	return c.Call(ctx, "setKeyboardMacros", keyboardMacrosRequest{
+		Params: keyboardMacrosParams{Macros: macros},
+	}, nil)
 }
 
 func (c *Client) SetDeveloperModeState(ctx context.Context, enabled bool) error {

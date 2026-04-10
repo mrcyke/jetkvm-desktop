@@ -504,6 +504,30 @@ func (c *Controller) GetDeveloperModeState(ctx context.Context) (*bool, error) {
 	return &state.Enabled, nil
 }
 
+func (c *Controller) GetDevChannelState(ctx context.Context) (*bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	enabled, err := current.GetDevChannelState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &enabled, nil
+}
+
+func (c *Controller) GetLocalLoopbackOnly(ctx context.Context) (*bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	enabled, err := current.GetLocalLoopbackOnly(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &enabled, nil
+}
+
 func (c *Controller) GetLocalVersion(ctx context.Context) (VersionInfo, error) {
 	current := c.clientIfConnected()
 	if current == nil {
@@ -517,6 +541,117 @@ func (c *Controller) GetLocalVersion(ctx context.Context) (VersionInfo, error) {
 		AppVersion:    version.AppVersion,
 		SystemVersion: version.SystemVersion,
 	}, nil
+}
+
+func (c *Controller) GetUpdateStatus(ctx context.Context) (UpdateStatus, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return UpdateStatus{}, errors.New("client not connected")
+	}
+	status, err := current.GetUpdateStatus(ctx)
+	if err != nil {
+		return UpdateStatus{}, err
+	}
+	return UpdateStatus{
+		Local: VersionInfo{
+			AppVersion:    status.Local.AppVersion,
+			SystemVersion: status.Local.SystemVersion,
+		},
+		Remote: VersionInfo{
+			AppVersion:    status.Remote.AppVersion,
+			SystemVersion: status.Remote.SystemVersion,
+		},
+		AppUpdateAvailable:    status.AppUpdateAvailable,
+		SystemUpdateAvailable: status.SystemUpdateAvailable,
+	}, nil
+}
+
+func (c *Controller) GetVideoCodec(ctx context.Context) (VideoCodec, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return VideoCodecUnknown, errors.New("client not connected")
+	}
+	codec, err := current.GetVideoCodecPreference(ctx)
+	if err != nil {
+		return VideoCodecUnknown, err
+	}
+	return VideoCodec(codec), nil
+}
+
+func (c *Controller) GetEDID(ctx context.Context) (string, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return "", errors.New("client not connected")
+	}
+	return current.GetEDID(ctx)
+}
+
+func (c *Controller) GetBacklightSettings(ctx context.Context) (BacklightSettings, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return BacklightSettings{}, errors.New("client not connected")
+	}
+	settings, err := current.GetBacklightSettings(ctx)
+	if err != nil {
+		return BacklightSettings{}, err
+	}
+	return BacklightSettings{
+		MaxBrightness: settings.MaxBrightness,
+		DimAfter:      settings.DimAfter,
+		OffAfter:      settings.OffAfter,
+	}, nil
+}
+
+func (c *Controller) GetVideoSleepMode(ctx context.Context) (*VideoSleepMode, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	state, err := current.GetVideoSleepMode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &VideoSleepMode{
+		Enabled:  state.Enabled,
+		Duration: state.Duration,
+	}, nil
+}
+
+func (c *Controller) GetSSHKeyState(ctx context.Context) (string, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return "", errors.New("client not connected")
+	}
+	return current.GetSSHKeyState(ctx)
+}
+
+func (c *Controller) GetKeyboardMacros(ctx context.Context) ([]KeyboardMacro, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	macros, err := current.GetKeyboardMacros(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KeyboardMacro, 0, len(macros))
+	for _, macro := range macros {
+		steps := make([]KeyboardMacroStep, 0, len(macro.Steps))
+		for _, step := range macro.Steps {
+			steps = append(steps, KeyboardMacroStep{
+				Keys:      append([]string(nil), step.Keys...),
+				Modifiers: append([]string(nil), step.Modifiers...),
+				Delay:     step.Delay,
+			})
+		}
+		out = append(out, KeyboardMacro{
+			ID:        macro.ID,
+			Name:      macro.Name,
+			Steps:     steps,
+			SortOrder: macro.SortOrder,
+		})
+	}
+	return out, nil
 }
 
 func (c *Controller) GetMQTTSettings(ctx context.Context) (MQTTSettings, error) {
@@ -643,6 +778,146 @@ func (c *Controller) SetDeveloperModeState(enabled bool) error {
 		}
 		return current != nil && *current == enabled, nil
 	})
+}
+
+func (c *Controller) SetDevChannelState(enabled bool) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetDevChannelState(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetDevChannelState(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current != nil && *current == enabled, nil
+	})
+}
+
+func (c *Controller) SetLocalLoopbackOnly(enabled bool) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetLocalLoopbackOnly(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetLocalLoopbackOnly(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current != nil && *current == enabled, nil
+	})
+}
+
+func (c *Controller) SetVideoCodec(codec VideoCodec) error {
+	if codec == "" {
+		return errors.New("video codec is required")
+	}
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetVideoCodecPreference(ctx, string(codec))
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetVideoCodec(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current == codec, nil
+	})
+}
+
+func (c *Controller) SetEDID(edid string) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetEDID(ctx, edid)
+	}, func(ctx context.Context) (bool, error) {
+		current := c.clientIfConnected()
+		if current == nil {
+			return false, errors.New("client not connected")
+		}
+		currentEDID, err := current.GetEDID(ctx)
+		if err != nil {
+			return false, err
+		}
+		return currentEDID == edid, nil
+	})
+}
+
+func (c *Controller) SetBacklightSettings(settings BacklightSettings) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetBacklightSettings(ctx, client.BacklightSettings{
+			MaxBrightness: settings.MaxBrightness,
+			DimAfter:      settings.DimAfter,
+			OffAfter:      settings.OffAfter,
+		})
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetBacklightSettings(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current == settings, nil
+	})
+}
+
+func (c *Controller) SetVideoSleepMode(duration int) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetVideoSleepMode(ctx, duration)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetVideoSleepMode(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current != nil && current.Duration == duration, nil
+	})
+}
+
+func (c *Controller) SetSSHKeyState(sshKey string) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.SetSSHKeyState(withTimeout(context.Background(), c.cfg.MutationTimeout), sshKey)
+}
+
+func (c *Controller) SetKeyboardMacros(macros []KeyboardMacro) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	items := make([]client.KeyboardMacro, 0, len(macros))
+	for _, macro := range macros {
+		steps := make([]client.KeyboardMacroStep, 0, len(macro.Steps))
+		for _, step := range macro.Steps {
+			steps = append(steps, client.KeyboardMacroStep{
+				Keys:      append([]string(nil), step.Keys...),
+				Modifiers: append([]string(nil), step.Modifiers...),
+				Delay:     step.Delay,
+			})
+		}
+		items = append(items, client.KeyboardMacro{
+			ID:        macro.ID,
+			Name:      macro.Name,
+			Steps:     steps,
+			SortOrder: macro.SortOrder,
+		})
+	}
+	return current.SetKeyboardMacros(withTimeout(context.Background(), c.cfg.MutationTimeout), items)
 }
 
 func (c *Controller) GetJigglerState(ctx context.Context) (bool, error) {

@@ -117,6 +117,9 @@ type App struct {
 	jigglerEditorConfig    session.JigglerConfig
 	jigglerEditorError     string
 	accessEditor           accessEditorState
+	advancedSSHKey         string
+	advancedSSHLoaded      bool
+	advancedSSHDirty       bool
 	mqttEditor             mqttEditorState
 	mqttEditorLoaded       bool
 	mqttEditorDirty        bool
@@ -146,12 +149,20 @@ type settingsActionGroup uint8
 const (
 	settingsGroupKeyboardLayout settingsActionGroup = iota // keyboard_layout
 	settingsGroupVideoQuality                              // video_quality
+	settingsGroupVideoCodec                                // video_codec
+	settingsGroupVideoEDID                                 // video_edid
 	settingsGroupTLSMode                                   // tls_mode
 	settingsGroupDisplayRotate                             // display_rotation
+	settingsGroupBacklight                                 // backlight
+	settingsGroupVideoSleep                                // video_sleep
 	settingsGroupUSBEmulation                              // usb_emulation
 	settingsGroupUSBDevices                                // usb_devices
 	settingsGroupAutoUpdate                                // auto_update
+	settingsGroupUpdateStatus                              // update_status
 	settingsGroupDeveloperMode                             // developer_mode
+	settingsGroupDevChannel                                // dev_channel
+	settingsGroupLoopbackOnly                              // loopback_only
+	settingsGroupSSHKey                                    // ssh_key
 	settingsGroupJiggler                                   // jiggler
 	settingsGroupLocalAuth                                 // local_auth
 	settingsGroupMQTTSave                                  // mqtt_save
@@ -186,6 +197,7 @@ const (
 	settingsInputAccessNewPassword
 	settingsInputAccessConfirmNewPassword
 	settingsInputAccessDisablePassword
+	settingsInputAdvancedSSH
 	settingsInputMQTTBroker
 	settingsInputMQTTPort
 	settingsInputMQTTUsername
@@ -902,6 +914,8 @@ func (a *App) currentSettingsTextValue() *string {
 		return &a.accessEditor.ConfirmNewPassword
 	case settingsInputAccessDisablePassword:
 		return &a.accessEditor.DisablePassword
+	case settingsInputAdvancedSSH:
+		return &a.advancedSSHKey
 	case settingsInputMQTTBroker:
 		return &a.mqttEditor.Broker
 	case settingsInputMQTTPort:
@@ -978,6 +992,14 @@ func (a *App) clearAccessEditor(message string, success bool) {
 	if a.settingsInputFocus >= settingsInputAccessPassword && a.settingsInputFocus <= settingsInputAccessDisablePassword {
 		a.settingsInputFocus = settingsInputNone
 	}
+}
+
+func (a *App) syncAdvancedSSHKeyLocked(sshKey string) {
+	if a.advancedSSHDirty {
+		return
+	}
+	a.advancedSSHKey = sshKey
+	a.advancedSSHLoaded = true
 }
 
 func (a *App) setAccessEditorMode(mode accessEditorMode) {
@@ -1086,6 +1108,9 @@ func (a *App) syncSettingsInput() {
 			a.accessEditor.Message = ""
 			a.accessEditor.Success = false
 		}
+		if a.settingsSection == sectionAdvanced {
+			a.advancedSSHDirty = true
+		}
 		if a.settingsSection == sectionMQTT {
 			a.mqttEditorDirty = true
 			a.mqttTestMessage = ""
@@ -1137,6 +1162,8 @@ func (a *App) syncSettingsInput() {
 			case accessEditorModeDisable:
 				a.settingsInputFocus = settingsInputAccessDisablePassword
 			}
+		case sectionAdvanced:
+			a.settingsInputFocus = settingsInputAdvancedSSH
 		}
 		return
 	}
@@ -1146,6 +1173,8 @@ func (a *App) syncSettingsInput() {
 			a.invokeAction("jiggler_custom_save")
 		case sectionAccess:
 			a.invokeAction("access_submit")
+		case sectionAdvanced:
+			a.invokeAction("advanced_save_ssh")
 		case sectionMQTT:
 			a.invokeAction("mqtt_save_settings")
 		}
@@ -1162,6 +1191,9 @@ func (a *App) syncSettingsInput() {
 		if a.settingsSection == sectionAccess {
 			a.accessEditor.Message = ""
 			a.accessEditor.Success = false
+		}
+		if a.settingsSection == sectionAdvanced {
+			a.advancedSSHDirty = true
 		}
 		if a.settingsSection == sectionMQTT {
 			a.mqttEditorDirty = true
@@ -1309,6 +1341,13 @@ func (a *App) invokeAction(id string) {
 		a.withSettingsAction(settingsGroupVideoQuality, "low", func() error {
 			return a.ctrl.SetQuality(0.1)
 		})
+	case "check_updates":
+		if a.settingsActionPending(settingsGroupUpdateStatus) {
+			return
+		}
+		a.withSettingsAction(settingsGroupUpdateStatus, "refresh", func() error {
+			return a.refreshSettingsSectionSync(sectionGeneral)
+		})
 	case "reboot":
 		a.runAsync(func() {
 			_ = a.ctrl.Reboot()
@@ -1420,6 +1459,22 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionAccess)
 		})
+	case "video_codec:auto":
+		a.invokeVideoCodecAction("auto", session.VideoCodecAuto)
+	case "video_codec:h265":
+		a.invokeVideoCodecAction("h265", session.VideoCodecH265)
+	case "video_codec:h264":
+		a.invokeVideoCodecAction("h264", session.VideoCodecH264)
+	case "video_edid:jetkvm_default":
+		a.invokeEDIDAction("jetkvm_default", videoEDIDPresetJetKVMDefault)
+	case "video_edid:acer_b246wl":
+		a.invokeEDIDAction("acer_b246wl", videoEDIDPresetAcerB246WL)
+	case "video_edid:asus_pa248qv":
+		a.invokeEDIDAction("asus_pa248qv", videoEDIDPresetASUSPA248QV)
+	case "video_edid:dell_d2721h":
+		a.invokeEDIDAction("dell_d2721h", videoEDIDPresetDellD2721H)
+	case "video_edid:dell_idrac":
+		a.invokeEDIDAction("dell_idrac", videoEDIDPresetDellIDRAC)
 	case "access_enable_password":
 		a.setAccessEditorMode(accessEditorModeCreate)
 	case "access_change_password":
@@ -1442,6 +1497,10 @@ func (a *App) invokeAction(id string) {
 		a.settingsInputFocus = settingsInputAccessDisablePassword
 	case "access_submit":
 		a.invokeLocalAuthSubmit()
+	case "advanced_focus_ssh":
+		a.settingsInputFocus = settingsInputAdvancedSSH
+	case "advanced_save_ssh":
+		a.invokeSaveSSHKey()
 	case "rotate_normal":
 		if a.settingsActionPending(settingsGroupDisplayRotate) {
 			return
@@ -1462,6 +1521,38 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
 		})
+	case "backlight_brightness:0":
+		a.invokeBacklightBrightnessAction("0", 0)
+	case "backlight_brightness:10":
+		a.invokeBacklightBrightnessAction("10", 10)
+	case "backlight_brightness:35":
+		a.invokeBacklightBrightnessAction("35", 35)
+	case "backlight_brightness:64":
+		a.invokeBacklightBrightnessAction("64", 64)
+	case "backlight_dim:0":
+		a.invokeBacklightDimAfterAction("0", 0)
+	case "backlight_dim:60":
+		a.invokeBacklightDimAfterAction("60", 60)
+	case "backlight_dim:300":
+		a.invokeBacklightDimAfterAction("300", 300)
+	case "backlight_dim:600":
+		a.invokeBacklightDimAfterAction("600", 600)
+	case "backlight_dim:1800":
+		a.invokeBacklightDimAfterAction("1800", 1800)
+	case "backlight_dim:3600":
+		a.invokeBacklightDimAfterAction("3600", 3600)
+	case "backlight_off:0":
+		a.invokeBacklightOffAfterAction("0", 0)
+	case "backlight_off:300":
+		a.invokeBacklightOffAfterAction("300", 300)
+	case "backlight_off:600":
+		a.invokeBacklightOffAfterAction("600", 600)
+	case "backlight_off:1800":
+		a.invokeBacklightOffAfterAction("1800", 1800)
+	case "backlight_off:3600":
+		a.invokeBacklightOffAfterAction("3600", 3600)
+	case "hardware_hdmi_sleep_toggle":
+		a.invokeVideoSleepToggle()
 	case "usb_emulation_toggle":
 		if a.settingsActionPending(settingsGroupUSBEmulation) {
 			return
@@ -1545,6 +1636,10 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionAdvanced)
 		})
+	case "dev_channel_toggle":
+		a.invokeDevChannelToggle()
+	case "loopback_only_toggle":
+		a.invokeLoopbackOnlyToggle()
 	case "jiggler_disabled":
 		a.invokeJigglerPresetAction("disabled", false, session.JigglerConfig{})
 	case "jiggler_frequent":
@@ -1704,6 +1799,9 @@ func (a *App) invokeAction(id string) {
 					a.clearAccessEditor("", false)
 				}
 			}
+			if section != sectionAdvanced && a.settingsInputFocus == settingsInputAdvancedSSH {
+				a.settingsInputFocus = settingsInputNone
+			}
 			if section != sectionMQTT {
 				switch a.settingsInputFocus {
 				case settingsInputMQTTBroker, settingsInputMQTTPort, settingsInputMQTTUsername, settingsInputMQTTPassword, settingsInputMQTTBaseTopic, settingsInputMQTTDebounce:
@@ -1739,6 +1837,154 @@ func (a *App) invokeJigglerPresetAction(choice string, enabled bool, cfg session
 		}
 		a.closeJigglerEditor()
 		return a.refreshSettingsSectionSync(sectionMouse)
+	})
+}
+
+func (a *App) invokeVideoCodecAction(choice string, codec session.VideoCodec) {
+	if a.settingsActionPending(settingsGroupVideoCodec) {
+		return
+	}
+	a.withSettingsAction(settingsGroupVideoCodec, choice, func() error {
+		if err := a.ctrl.SetVideoCodec(codec); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionVideo)
+	})
+}
+
+func (a *App) invokeEDIDAction(choice, edid string) {
+	if a.settingsActionPending(settingsGroupVideoEDID) {
+		return
+	}
+	a.withSettingsAction(settingsGroupVideoEDID, choice, func() error {
+		if err := a.ctrl.SetEDID(edid); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionVideo)
+	})
+}
+
+func (a *App) invokeBacklightBrightnessAction(choice string, brightness int) {
+	a.updateBacklightSettings(choice, func(settings *session.BacklightSettings) {
+		settings.MaxBrightness = brightness
+	})
+}
+
+func (a *App) invokeBacklightDimAfterAction(choice string, dimAfter int) {
+	a.updateBacklightSettings(choice, func(settings *session.BacklightSettings) {
+		settings.DimAfter = dimAfter
+		if settings.OffAfter != 0 && settings.DimAfter > settings.OffAfter {
+			settings.DimAfter = 0
+		}
+	})
+}
+
+func (a *App) invokeBacklightOffAfterAction(choice string, offAfter int) {
+	a.updateBacklightSettings(choice, func(settings *session.BacklightSettings) {
+		settings.OffAfter = offAfter
+		if settings.OffAfter != 0 && settings.DimAfter > settings.OffAfter {
+			settings.DimAfter = 0
+		}
+	})
+}
+
+func (a *App) updateBacklightSettings(choice string, mutate func(*session.BacklightSettings)) {
+	if a.settingsActionPending(settingsGroupBacklight) {
+		return
+	}
+	a.mu.RLock()
+	settings := a.sectionData.Hardware.State.Backlight
+	a.mu.RUnlock()
+	mutate(&settings)
+	a.withSettingsAction(settingsGroupBacklight, choice, func() error {
+		if err := a.ctrl.SetBacklightSettings(settings); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionHardware)
+	})
+}
+
+func (a *App) invokeVideoSleepToggle() {
+	if a.settingsActionPending(settingsGroupVideoSleep) {
+		return
+	}
+	a.mu.RLock()
+	mode := a.sectionData.Hardware.State.VideoSleepMode
+	a.mu.RUnlock()
+	if mode == nil {
+		return
+	}
+	duration := 90
+	choice := "on"
+	if mode.Duration >= 0 {
+		duration = -1
+		choice = "off"
+	}
+	a.withSettingsAction(settingsGroupVideoSleep, choice, func() error {
+		if err := a.ctrl.SetVideoSleepMode(duration); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionHardware)
+	})
+}
+
+func (a *App) invokeDevChannelToggle() {
+	if a.settingsActionPending(settingsGroupDevChannel) {
+		return
+	}
+	a.mu.RLock()
+	devChannel := a.sectionData.Advanced.State.DevChannel
+	a.mu.RUnlock()
+	if devChannel == nil {
+		return
+	}
+	next := !*devChannel
+	choice := "off"
+	if next {
+		choice = "on"
+	}
+	a.withSettingsAction(settingsGroupDevChannel, choice, func() error {
+		if err := a.ctrl.SetDevChannelState(next); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionAdvanced)
+	})
+}
+
+func (a *App) invokeLoopbackOnlyToggle() {
+	if a.settingsActionPending(settingsGroupLoopbackOnly) {
+		return
+	}
+	a.mu.RLock()
+	loopback := a.sectionData.Advanced.State.LoopbackOnly
+	a.mu.RUnlock()
+	if loopback == nil {
+		return
+	}
+	next := !*loopback
+	choice := "off"
+	if next {
+		choice = "on"
+	}
+	a.withSettingsAction(settingsGroupLoopbackOnly, choice, func() error {
+		if err := a.ctrl.SetLocalLoopbackOnly(next); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionAdvanced)
+	})
+}
+
+func (a *App) invokeSaveSSHKey() {
+	if a.settingsActionPending(settingsGroupSSHKey) {
+		return
+	}
+	sshKey := strings.TrimSpace(a.advancedSSHKey)
+	a.withSettingsAction(settingsGroupSSHKey, "save", func() error {
+		if err := a.ctrl.SetSSHKeyState(sshKey); err != nil {
+			return err
+		}
+		a.advancedSSHDirty = false
+		return a.refreshSettingsSectionSync(sectionAdvanced)
 	})
 }
 

@@ -55,6 +55,8 @@ type DeviceState struct {
 	DeviceID            string
 	VideoState          string
 	StreamQualityFactor float64
+	VideoCodec          string
+	EDID                string
 	AutoUpdateEnabled   bool
 	KeyboardLEDMask     byte
 	KeyboardModifiers   byte
@@ -64,16 +66,22 @@ type DeviceState struct {
 	CloudAppURL         string
 	KeyboardLayout      string
 	DeveloperMode       bool
+	DevChannel          bool
+	LoopbackOnly        bool
+	SSHKey              string
 	JigglerEnabled      bool
 	JigglerConfig       map[string]any
 	TLSMode             string
 	DisplayRotation     string
+	BacklightSettings   map[string]any
+	VideoSleepDuration  int
 	USBEmulation        bool
 	USBConfig           map[string]any
 	USBDevices          map[string]any
 	MQTTSettings        map[string]any
 	MQTTConnected       bool
 	MQTTError           string
+	KeyboardMacros      []map[string]any
 }
 
 type InputRecord struct {
@@ -139,6 +147,8 @@ func NewServer(cfg Config) (*Server, error) {
 			DeviceID:            "emu-jetkvm-001",
 			VideoState:          "ready",
 			StreamQualityFactor: 0.75,
+			VideoCodec:          "auto",
+			EDID:                "",
 			AutoUpdateEnabled:   true,
 			KeyboardLEDMask:     0,
 			KeyboardModifiers:   0,
@@ -146,6 +156,9 @@ func NewServer(cfg Config) (*Server, error) {
 			Hostname:            "jetkvm-emulator",
 			KeyboardLayout:      "en_US",
 			DeveloperMode:       false,
+			DevChannel:          false,
+			LoopbackOnly:        false,
+			SSHKey:              "",
 			JigglerEnabled:      false,
 			JigglerConfig: map[string]any{
 				"inactivity_limit_seconds": 60,
@@ -154,7 +167,13 @@ func NewServer(cfg Config) (*Server, error) {
 			},
 			TLSMode:         "disabled",
 			DisplayRotation: "270",
-			USBEmulation:    true,
+			BacklightSettings: map[string]any{
+				"max_brightness": 64,
+				"dim_after":      300,
+				"off_after":      600,
+			},
+			VideoSleepDuration: -1,
+			USBEmulation:       true,
 			USBConfig: map[string]any{
 				"vendor_id":     "0xCafe",
 				"product_id":    "0x4000",
@@ -183,6 +202,7 @@ func NewServer(cfg Config) (*Server, error) {
 				"enable_actions":      false,
 				"debounce_ms":         0,
 			},
+			KeyboardMacros: []map[string]any{},
 		},
 		inputs: make([]InputRecord, 0, 32),
 		storage: map[string]storedFile{
@@ -423,7 +443,7 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"authMode":     &authMode,
 		"deviceId":     s.state.DeviceID,
-		"loopbackOnly": false,
+		"loopbackOnly": s.state.LoopbackOnly,
 	})
 }
 
@@ -930,7 +950,23 @@ func (s *session) handleRPC(data []byte) error {
 		}
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "getEDID":
-		resp = jsonrpc.NewResponse(req.ID, "")
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.EDID)
+	case "setEDID":
+		if edid, ok := params["edid"].(string); ok {
+			s.serverRef.state.EDID = edid
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing edid", nil)
+		}
+	case "getVideoCodecPreference":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.VideoCodec)
+	case "setVideoCodecPreference":
+		if codec, ok := params["codec"].(string); ok && codec != "" {
+			s.serverRef.state.VideoCodec = codec
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing codec", nil)
+		}
 	case "getUsbEmulationState":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.USBEmulation)
 	case "setUsbEmulationState":
@@ -991,6 +1027,27 @@ func (s *session) handleRPC(data []byte) error {
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing params", nil)
 		}
+	case "getBacklightSettings":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.BacklightSettings)
+	case "setBacklightSettings":
+		if settings, ok := params["params"].(map[string]any); ok {
+			s.serverRef.state.BacklightSettings = mapsClone(settings)
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing params", nil)
+		}
+	case "getVideoSleepMode":
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{
+			"enabled":  s.serverRef.state.VideoSleepDuration >= 0,
+			"duration": s.serverRef.state.VideoSleepDuration,
+		})
+	case "setVideoSleepMode":
+		if duration, ok := params["duration"].(float64); ok {
+			s.serverRef.state.VideoSleepDuration = int(duration)
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing duration", nil)
+		}
 	case "getMqttSettings":
 		settings := mapsClone(s.serverRef.state.MQTTSettings)
 		if password, ok := settings["password"].(string); ok && password != "" {
@@ -1028,7 +1085,26 @@ func (s *session) handleRPC(data []byte) error {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing settings", nil)
 		}
 	case "getKeyboardMacros":
-		resp = jsonrpc.NewResponse(req.ID, []any{})
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.KeyboardMacros)
+	case "setKeyboardMacros":
+		if wrapper, ok := params["params"].(map[string]any); ok {
+			if macros, ok := wrapper["macros"].([]any); ok {
+				out := make([]map[string]any, 0, len(macros))
+				for _, item := range macros {
+					macro, ok := item.(map[string]any)
+					if !ok {
+						continue
+					}
+					out = append(out, mapsClone(macro))
+				}
+				s.serverRef.state.KeyboardMacros = out
+				resp = jsonrpc.NewResponse(req.ID, true)
+			} else {
+				resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing macros", nil)
+			}
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing params", nil)
+		}
 	case "getDevModeState":
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"enabled": s.serverRef.state.DeveloperMode})
 	case "setDevModeState":
@@ -1037,6 +1113,33 @@ func (s *session) handleRPC(data []byte) error {
 			resp = jsonrpc.NewResponse(req.ID, true)
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
+	case "getDevChannelState":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.DevChannel)
+	case "setDevChannelState":
+		if enabled, ok := params["enabled"].(bool); ok {
+			s.serverRef.state.DevChannel = enabled
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
+	case "getLocalLoopbackOnly":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.LoopbackOnly)
+	case "setLocalLoopbackOnly":
+		if enabled, ok := params["enabled"].(bool); ok {
+			s.serverRef.state.LoopbackOnly = enabled
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
+	case "getSSHKeyState":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.SSHKey)
+	case "setSSHKeyState":
+		if sshKey, ok := params["sshKey"].(string); ok {
+			s.serverRef.state.SSHKey = sshKey
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing sshKey", nil)
 		}
 	case "getJigglerState":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.JigglerEnabled)

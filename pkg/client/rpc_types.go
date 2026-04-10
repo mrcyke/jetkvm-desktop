@@ -8,8 +8,21 @@ type LocalVersion struct {
 }
 
 type UpdateStatus struct {
-	AppUpdateAvailable    bool `json:"appUpdateAvailable"`
-	SystemUpdateAvailable bool `json:"systemUpdateAvailable"`
+	Local                 LocalVersion `json:"local"`
+	Remote                LocalVersion `json:"remote"`
+	AppUpdateAvailable    bool         `json:"appUpdateAvailable"`
+	SystemUpdateAvailable bool         `json:"systemUpdateAvailable"`
+}
+
+type BacklightSettings struct {
+	MaxBrightness int `json:"max_brightness"`
+	DimAfter      int `json:"dim_after"`
+	OffAfter      int `json:"off_after"`
+}
+
+type VideoSleepMode struct {
+	Enabled  bool `json:"enabled"`
+	Duration int  `json:"duration"`
 }
 
 type MQTTSettings struct {
@@ -82,6 +95,27 @@ type DeveloperModeState struct {
 	Enabled bool `json:"enabled"`
 }
 
+type keyboardMacrosRequest struct {
+	Params keyboardMacrosParams `json:"params"`
+}
+
+type keyboardMacrosParams struct {
+	Macros []KeyboardMacro `json:"macros"`
+}
+
+type KeyboardMacroStep struct {
+	Keys      []string `json:"keys"`
+	Modifiers []string `json:"modifiers"`
+	Delay     int      `json:"delay"`
+}
+
+type KeyboardMacro struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Steps     []KeyboardMacroStep `json:"steps"`
+	SortOrder int                 `json:"sortOrder,omitempty"`
+}
+
 type JigglerConfig struct {
 	InactivityLimitSeconds int    `json:"inactivity_limit_seconds"`
 	JitterPercentage       int    `json:"jitter_percentage"`
@@ -142,6 +176,26 @@ type enabledStateRequest struct {
 
 type jigglerConfigRequest struct {
 	JigglerConfig JigglerConfig `json:"jigglerConfig"`
+}
+
+type setCodecPreferenceRequest struct {
+	Codec string `json:"codec"`
+}
+
+type setEDIDRequest struct {
+	EDID string `json:"edid"`
+}
+
+type setBacklightSettingsRequest struct {
+	Params BacklightSettings `json:"params"`
+}
+
+type setVideoSleepModeRequest struct {
+	Duration int `json:"duration"`
+}
+
+type setSSHKeyStateRequest struct {
+	SSHKey string `json:"sshKey"`
 }
 
 type wheelReportRequest struct {

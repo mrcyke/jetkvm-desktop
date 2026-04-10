@@ -60,6 +60,8 @@ type HardwareState struct {
 	USBDevices      USBDevices
 	USBDeviceCount  int
 	DisplayRotation DisplayRotation
+	Backlight       BacklightSettings
+	VideoSleepMode  *VideoSleepMode
 }
 
 type NetworkSettings struct {
@@ -83,6 +85,38 @@ type JigglerConfig struct {
 type VersionInfo struct {
 	AppVersion    string
 	SystemVersion string
+}
+
+type UpdateStatus struct {
+	Local                 VersionInfo
+	Remote                VersionInfo
+	AppUpdateAvailable    bool
+	SystemUpdateAvailable bool
+}
+
+type VideoCodec string
+
+const (
+	VideoCodecUnknown VideoCodec = ""
+	VideoCodecAuto    VideoCodec = "auto"
+	VideoCodecH265    VideoCodec = "h265"
+	VideoCodecH264    VideoCodec = "h264"
+)
+
+type BacklightSettings struct {
+	MaxBrightness int
+	DimAfter      int
+	OffAfter      int
+}
+
+type VideoSleepMode struct {
+	Enabled  bool
+	Duration int
+}
+
+type VideoState struct {
+	Codec VideoCodec
+	EDID  string
 }
 
 type MQTTSettings struct {
@@ -111,6 +145,22 @@ type MQTTTestResult struct {
 
 type AdvancedState struct {
 	DevMode      *bool
+	DevChannel   *bool
+	LoopbackOnly *bool
 	USBEmulation *bool
+	SSHKey       string
 	Version      VersionInfo
+}
+
+type KeyboardMacroStep struct {
+	Keys      []string
+	Modifiers []string
+	Delay     int
+}
+
+type KeyboardMacro struct {
+	ID        string
+	Name      string
+	Steps     []KeyboardMacroStep
+	SortOrder int
 }

@@ -69,6 +69,7 @@ type settingsSectionDef struct {
 type sectionData struct {
 	General  generalState
 	Mouse    mouseState
+	Video    videoState
 	Access   accessState
 	Hardware hardwareState
 	Network  networkState
@@ -80,6 +81,7 @@ type generalState struct {
 	Loading    bool
 	Error      string
 	AutoUpdate *bool
+	Update     session.UpdateStatus
 }
 
 type mouseState struct {
@@ -93,6 +95,12 @@ type accessState struct {
 	Loading bool
 	Error   string
 	State   session.AccessState
+}
+
+type videoState struct {
+	Loading bool
+	Error   string
+	State   session.VideoState
 }
 
 type hardwareState struct {
@@ -275,6 +283,14 @@ func settingsSections(snap session.Snapshot) []settingsSectionDef {
 		},
 	}
 }
+
+const (
+	videoEDIDPresetJetKVMDefault = "00ffffffffffff0028b4010001eeffc0302301038047287856ee91a3544c99260f5054000000d1c081c0318001010101010101010101023a801871382d40582c4500c48e2100001e011d007251d01e206e285500c48e2100001e000000fd00174c0f5111000a202020202020000000fc004a65744b564d2076310a202020011d020322d1431004012309070783010000e200cfe40d100401e305000065030c001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cf"
+	videoEDIDPresetAcerB246WL    = "00FFFFFFFFFFFF00047265058A3F6101101E0104A53420783FC125A8554EA0260D5054BFEF80714F8140818081C081008B009500B300283C80A070B023403020360006442100001A000000FD00304C575716010A202020202020000000FC0042323436574C0A202020202020000000FF0054384E4545303033383532320A01F802031CF14F90020304050607011112131415161F2309070783010000011D8018711C1620582C250006442100009E011D007251D01E206E28550006442100001E8C0AD08A20E02D10103E9600064421000018C344806E70B028401720A80406442100001E00000000000000000000000000000000000000000000000000000096"
+	videoEDIDPresetASUSPA248QV   = "00FFFFFFFFFFFF0006B3872401010101021F010380342078EA6DB5A7564EA0250D5054BF6F00714F8180814081C0A9409500B300D1C0283C80A070B023403020360006442100001A000000FD00314B1E5F19000A202020202020000000FC00504132343851560A2020202020000000FF004D314C4D51533035323135370A014D02032AF14B900504030201111213141F230907078301000065030C001000681A00000101314BE6E2006A023A801871382D40582C450006442100001ECD5F80B072B0374088D0360006442100001C011D007251D01E206E28550006442100001E8C0AD08A20E02D10103E960006442100001800000000000000000000000000DC"
+	videoEDIDPresetDellD2721H    = "00FFFFFFFFFFFF0010AC132045393639201E0103803C22782ACD25A3574B9F270D5054A54B00714F8180A9C0D1C00101010101010101023A801871382D40582C450056502100001E000000FF00335335475132330A2020202020000000FC0044454C4C204432373231480A20000000FD00384C1E5311000A202020202020018102031AB14F90050403020716010611121513141F65030C001000023A801871382D40582C450056502100001E011D8018711C1620582C250056502100009E011D007251D01E206E28550056502100001E8C0AD08A20E02D10103E960056502100001800000000000000000000000000000000000000000000000000000000004F"
+	videoEDIDPresetDellIDRAC     = "00FFFFFFFFFFFF0010AC0100020000000111010380221BFF0A00000000000000000000ADCE0781800101010101010101010101010101000000FF0030303030303030303030303030000000FF0030303030303030303030303030000000FD00384C1F530B000A000000000000000000FC0044454C4C2049445241430A2020000A"
+)
 
 func fallbackLabel(values ...string) string {
 	for _, value := range values {
@@ -856,6 +872,9 @@ func (a *App) markSettingsSectionLoading(section settingsSection) uint64 {
 	case sectionAccess:
 		a.sectionData.Access.Loading = true
 		a.sectionData.Access.Error = ""
+	case sectionVideo:
+		a.sectionData.Video.Loading = true
+		a.sectionData.Video.Error = ""
 	case sectionHardware:
 		a.sectionData.Hardware.Loading = true
 		a.sectionData.Hardware.Error = ""
@@ -883,6 +902,9 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		if enabled, callErr := a.ctrl.GetAutoUpdateState(ctx); callErr == nil {
 			state.AutoUpdate = &enabled
 		}
+		if update, callErr := a.ctrl.GetUpdateStatus(ctx); callErr == nil {
+			state.Update = update
+		}
 		if state.AutoUpdate == nil {
 			state.Error = "No general RPC state available on this target"
 			err = errors.New(state.Error)
@@ -907,6 +929,23 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Lock()
 		if a.sectionLoadSeq[section] == seq {
 			a.sectionData.Mouse = state
+		}
+		a.mu.Unlock()
+	case sectionVideo:
+		state := videoState{Loading: false}
+		if codec, callErr := a.ctrl.GetVideoCodec(ctx); callErr == nil {
+			state.State.Codec = codec
+		}
+		if edid, callErr := a.ctrl.GetEDID(ctx); callErr == nil {
+			state.State.EDID = edid
+		}
+		if state.State.Codec == session.VideoCodecUnknown && state.State.EDID == "" {
+			state.Error = "No video RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Video = state
 		}
 		a.mu.Unlock()
 	case sectionAccess:
@@ -945,9 +984,17 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		if rotation, callErr := a.ctrl.GetDisplayRotation(ctx); callErr == nil {
 			state.State.DisplayRotation = rotation
 		}
+		if backlight, callErr := a.ctrl.GetBacklightSettings(ctx); callErr == nil {
+			state.State.Backlight = backlight
+		}
+		if sleepMode, callErr := a.ctrl.GetVideoSleepMode(ctx); callErr == nil {
+			state.State.VideoSleepMode = sleepMode
+		}
 		if state.State.USBEmulation == nil &&
 			state.State.USBConfig == (session.USBConfig{}) &&
-			state.State.DisplayRotation == session.DisplayRotationUnknown {
+			state.State.DisplayRotation == session.DisplayRotationUnknown &&
+			state.State.Backlight == (session.BacklightSettings{}) &&
+			state.State.VideoSleepMode == nil {
 			state.Error = "No hardware RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -999,19 +1046,29 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		if devMode, callErr := a.ctrl.GetDeveloperModeState(ctx); callErr == nil {
 			state.State.DevMode = devMode
 		}
+		if devChannel, callErr := a.ctrl.GetDevChannelState(ctx); callErr == nil {
+			state.State.DevChannel = devChannel
+		}
+		if loopbackOnly, callErr := a.ctrl.GetLocalLoopbackOnly(ctx); callErr == nil {
+			state.State.LoopbackOnly = loopbackOnly
+		}
 		if usbEnabled, callErr := a.ctrl.GetUSBEmulationState(ctx); callErr == nil {
 			state.State.USBEmulation = &usbEnabled
+		}
+		if sshKey, callErr := a.ctrl.GetSSHKeyState(ctx); callErr == nil {
+			state.State.SSHKey = sshKey
 		}
 		if version, callErr := a.ctrl.GetLocalVersion(ctx); callErr == nil {
 			state.State.Version = version
 		}
-		if state.State.DevMode == nil && state.State.USBEmulation == nil && state.State.Version.AppVersion == "" {
+		if state.State.DevMode == nil && state.State.DevChannel == nil && state.State.LoopbackOnly == nil && state.State.USBEmulation == nil && state.State.Version.AppVersion == "" && state.State.SSHKey == "" {
 			state.Error = "No advanced RPC state available on this target"
 			err = errors.New(state.Error)
 		}
 		a.mu.Lock()
 		if a.sectionLoadSeq[section] == seq {
 			a.sectionData.Advanced = state
+			a.syncAdvancedSSHKeyLocked(state.State.SSHKey)
 		}
 		a.mu.Unlock()
 	}
@@ -1326,6 +1383,25 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(settingsKeyValueElement("Updates", updateLabel, 116)),
 	}})
+	updateChildren := []ui.Child{
+		ui.Fixed(settingsKeyValueElement("Local App", fallbackLabel(state.Update.Local.AppVersion, snap.AppVersion), 112)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Local System", fallbackLabel(state.Update.Local.SystemVersion, snap.SystemVersion), 112)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Remote App", fallbackLabel(state.Update.Remote.AppVersion, "Unavailable"), 112)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Remote System", fallbackLabel(state.Update.Remote.SystemVersion, "Unavailable"), 112)),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsActionElement("check_updates", "Check for updates", settingsActionVisual{Enabled: !a.settingsActionPending(settingsGroupUpdateStatus)}, 0)),
+	}
+	updateState := a.settingsAction(settingsGroupUpdateStatus)
+	switch {
+	case updateState.Pending:
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Refreshing…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+	case updateState.Error != "":
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(updateState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+	updatesCard := settingsCardElement("Updates", ui.Column{Children: updateChildren})
 	autoUpdate := a.settingsAction(settingsGroupAutoUpdate)
 	actionChildren := []ui.Child{
 		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session, manage auto-updates, or force a device reboot.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
@@ -1362,7 +1438,13 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 		actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 	}
 	actionsCard := settingsCardElement("Actions", ui.Column{Children: actionChildren})
-	return settingsTwoPane(deviceCard, 58, actionsCard, 42)
+	return ui.Column{
+		Children: []ui.Child{
+			ui.Fixed(settingsTwoPane(deviceCard, 58, actionsCard, 42)),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(updatesCard),
+		},
+	}
 }
 
 func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
@@ -1412,6 +1494,9 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 }
 
 func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
+	a.mu.RLock()
+	state := a.sectionData.Video
+	a.mu.RUnlock()
 	qualityState := a.settingsAction(settingsGroupVideoQuality)
 	streamChildren := []ui.Child{
 		ui.Fixed(settingsSectionLabelElement("Quality preset")),
@@ -1424,20 +1509,60 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(ui.Label{Text: fmt.Sprintf("Current factor %.2f", snap.Quality), Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
 	}
+	codecState := a.settingsAction(settingsGroupVideoCodec)
+	streamChildren = append(streamChildren,
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Codec preference")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("video_codec:auto", "Auto", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "auto", Active: state.State.Codec == session.VideoCodecAuto, Pending: codecState.Pending && codecState.PendingChoice == "auto"}, 72),
+			settingsActionElement("video_codec:h265", "H265", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h265", Active: state.State.Codec == session.VideoCodecH265, Pending: codecState.Pending && codecState.PendingChoice == "h265"}, 72),
+			settingsActionElement("video_codec:h264", "H264", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h264", Active: state.State.Codec == session.VideoCodecH264, Pending: codecState.Pending && codecState.PendingChoice == "h264"}, 72),
+		}, Spacing: 12, LineSpacing: 8}),
+	)
 	switch {
 	case qualityState.Pending:
 		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
 	case qualityState.Error != "":
 		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(qualityState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 	}
-	edid := snap.EDID
+	switch {
+	case codecState.Pending:
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating codec…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+	case codecState.Error != "":
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(codecState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+	edid := state.State.EDID
+	if edid == "" {
+		edid = snap.EDID
+	}
 	if edid == "" {
 		edid = "Unavailable on current target"
+	}
+	edidState := a.settingsAction(settingsGroupVideoEDID)
+	edidChildren := []ui.Child{
+		ui.Fixed(ui.Paragraph{Text: edid, Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsSectionLabelElement("Presets")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("video_edid:jetkvm_default", "JetKVM", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "jetkvm_default", Active: edid == videoEDIDPresetJetKVMDefault, Pending: edidState.Pending && edidState.PendingChoice == "jetkvm_default"}, 84),
+			settingsActionElement("video_edid:acer_b246wl", "Acer", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "acer_b246wl", Active: edid == videoEDIDPresetAcerB246WL, Pending: edidState.Pending && edidState.PendingChoice == "acer_b246wl"}, 72),
+			settingsActionElement("video_edid:asus_pa248qv", "ASUS", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "asus_pa248qv", Active: edid == videoEDIDPresetASUSPA248QV, Pending: edidState.Pending && edidState.PendingChoice == "asus_pa248qv"}, 72),
+			settingsActionElement("video_edid:dell_d2721h", "Dell", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "dell_d2721h", Active: edid == videoEDIDPresetDellD2721H, Pending: edidState.Pending && edidState.PendingChoice == "dell_d2721h"}, 72),
+			settingsActionElement("video_edid:dell_idrac", "iDRAC", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "dell_idrac", Active: edid == videoEDIDPresetDellIDRAC, Pending: edidState.Pending && edidState.PendingChoice == "dell_idrac"}, 72),
+		}, Spacing: 12, LineSpacing: 8}),
+	}
+	switch {
+	case edidState.Pending:
+		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying EDID…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+	case edidState.Error != "":
+		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(edidState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 	}
 	return settingsTwoPane(
 		settingsCardElement("Stream", ui.Column{Children: streamChildren}),
 		48,
-		settingsCardElement("EDID", ui.Column{Children: []ui.Child{ui.Fixed(ui.Paragraph{Text: edid, Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}})}}),
+		settingsCardElement("EDID", ui.Column{Children: edidChildren}),
 		52,
 	)
 }
@@ -1465,11 +1590,50 @@ func (a *App) settingsHardwareBody() ui.Element {
 			settingsActionElement("rotate_inverted", "Inverted", settingsActionVisual{Enabled: state.State.DisplayRotation != session.DisplayRotationUnknown && (!rotateState.Pending || rotateState.PendingChoice == "90"), Active: state.State.DisplayRotation == session.DisplayRotationInverted, Pending: rotateState.Pending && rotateState.PendingChoice == "90"}, 98),
 		}, Spacing: 12, LineSpacing: 8}),
 	}
+	backlightState := a.settingsAction(settingsGroupBacklight)
+	displayChildren = append(displayChildren,
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Brightness")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("backlight_brightness:0", "Off", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "0", Active: state.State.Backlight.MaxBrightness == 0, Pending: backlightState.Pending && backlightState.PendingChoice == "0"}, 64),
+			settingsActionElement("backlight_brightness:10", "Low", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "10", Active: state.State.Backlight.MaxBrightness == 10, Pending: backlightState.Pending && backlightState.PendingChoice == "10"}, 64),
+			settingsActionElement("backlight_brightness:35", "Medium", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "35", Active: state.State.Backlight.MaxBrightness == 35, Pending: backlightState.Pending && backlightState.PendingChoice == "35"}, 84),
+			settingsActionElement("backlight_brightness:64", "High", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "64", Active: state.State.Backlight.MaxBrightness == 64, Pending: backlightState.Pending && backlightState.PendingChoice == "64"}, 72),
+		}, Spacing: 12, LineSpacing: 8}),
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Dim display after")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("backlight_dim:0", "Never", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "0", Active: state.State.Backlight.DimAfter == 0, Pending: backlightState.Pending && backlightState.PendingChoice == "0"}, 76),
+			settingsActionElement("backlight_dim:60", "1m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "60", Active: state.State.Backlight.DimAfter == 60, Pending: backlightState.Pending && backlightState.PendingChoice == "60"}, 56),
+			settingsActionElement("backlight_dim:300", "5m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "300", Active: state.State.Backlight.DimAfter == 300, Pending: backlightState.Pending && backlightState.PendingChoice == "300"}, 56),
+			settingsActionElement("backlight_dim:600", "10m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "600", Active: state.State.Backlight.DimAfter == 600, Pending: backlightState.Pending && backlightState.PendingChoice == "600"}, 64),
+			settingsActionElement("backlight_dim:1800", "30m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "1800", Active: state.State.Backlight.DimAfter == 1800, Pending: backlightState.Pending && backlightState.PendingChoice == "1800"}, 64),
+			settingsActionElement("backlight_dim:3600", "1h", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "3600", Active: state.State.Backlight.DimAfter == 3600, Pending: backlightState.Pending && backlightState.PendingChoice == "3600"}, 56),
+		}, Spacing: 12, LineSpacing: 8}),
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Turn display off after")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("backlight_off:0", "Never", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "0", Active: state.State.Backlight.OffAfter == 0, Pending: backlightState.Pending && backlightState.PendingChoice == "0"}, 76),
+			settingsActionElement("backlight_off:300", "5m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "300", Active: state.State.Backlight.OffAfter == 300, Pending: backlightState.Pending && backlightState.PendingChoice == "300"}, 56),
+			settingsActionElement("backlight_off:600", "10m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "600", Active: state.State.Backlight.OffAfter == 600, Pending: backlightState.Pending && backlightState.PendingChoice == "600"}, 64),
+			settingsActionElement("backlight_off:1800", "30m", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "1800", Active: state.State.Backlight.OffAfter == 1800, Pending: backlightState.Pending && backlightState.PendingChoice == "1800"}, 64),
+			settingsActionElement("backlight_off:3600", "1h", settingsActionVisual{Enabled: !backlightState.Pending || backlightState.PendingChoice == "3600", Active: state.State.Backlight.OffAfter == 3600, Pending: backlightState.Pending && backlightState.PendingChoice == "3600"}, 56),
+		}, Spacing: 12, LineSpacing: 8}),
+	)
 	switch {
 	case rotateState.Pending:
 		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
 	case rotateState.Error != "":
 		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(rotateState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+	switch {
+	case backlightState.Pending:
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating display settings…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+	case backlightState.Error != "":
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(backlightState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 	}
 	usbState := a.settingsAction(settingsGroupUSBEmulation)
 	usbDevicesState := a.settingsAction(settingsGroupUSBDevices)
@@ -1500,6 +1664,8 @@ func (a *App) settingsHardwareBody() ui.Element {
 		}
 	}
 	usbChildren = append(usbChildren,
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsToggleRowElement("hardware_hdmi_sleep_toggle", "HDMI Sleep Power Saving", settingsActionVisual{Enabled: !a.settingsActionPending(settingsGroupVideoSleep), Active: state.State.VideoSleepMode != nil && state.State.VideoSleepMode.Duration >= 0, Pending: a.settingsActionPending(settingsGroupVideoSleep)})),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Preset")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1850,12 +2016,50 @@ func (a *App) settingsAdvancedBody() ui.Element {
 		children = append(children,
 			ui.Fixed(settingsKeyValueElement("Developer Mode", boolPtrWord(state.State.DevMode), 128)),
 			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsKeyValueElement("Dev Channel", boolPtrWord(state.State.DevChannel), 128)),
+			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsKeyValueElement("Loopback Only", boolPtrWord(state.State.LoopbackOnly), 128)),
+			ui.Fixed(ui.Spacer{H: 10}),
 			ui.Fixed(settingsKeyValueElement("USB Emulation", boolPtrWord(state.State.USBEmulation), 128)),
 			ui.Fixed(ui.Spacer{H: 10}),
 			ui.Fixed(settingsKeyValueElement("App Version", state.State.Version.AppVersion, 128)),
 			ui.Fixed(ui.Spacer{H: 10}),
 			ui.Fixed(settingsKeyValueElement("System Version", state.State.Version.SystemVersion, 128)),
 		)
+		if state.State.DevChannel != nil {
+			devChannelState := a.settingsAction(settingsGroupDevChannel)
+			children = append(children,
+				ui.Fixed(ui.Spacer{H: 14}),
+				ui.Fixed(settingsToggleRowElement("dev_channel_toggle", "Use Development Channel", settingsActionVisual{
+					Enabled: !devChannelState.Pending,
+					Active:  *state.State.DevChannel,
+					Pending: devChannelState.Pending,
+				})),
+			)
+			switch {
+			case devChannelState.Pending:
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			case devChannelState.Error != "":
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devChannelState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			}
+		}
+		if state.State.LoopbackOnly != nil {
+			loopbackState := a.settingsAction(settingsGroupLoopbackOnly)
+			children = append(children,
+				ui.Fixed(ui.Spacer{H: 14}),
+				ui.Fixed(settingsToggleRowElement("loopback_only_toggle", "Loopback Only", settingsActionVisual{
+					Enabled: !loopbackState.Pending,
+					Active:  *state.State.LoopbackOnly,
+					Pending: loopbackState.Pending,
+				})),
+			)
+			switch {
+			case loopbackState.Pending:
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			case loopbackState.Error != "":
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(loopbackState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			}
+		}
 		if state.State.DevMode != nil {
 			devModeState := a.settingsAction(settingsGroupDeveloperMode)
 			children = append(children,
@@ -1872,6 +2076,27 @@ func (a *App) settingsAdvancedBody() ui.Element {
 			case devModeState.Error != "":
 				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devModeState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 			}
+		}
+		sshState := a.settingsAction(settingsGroupSSHKey)
+		children = append(children,
+			ui.Fixed(ui.Spacer{H: 18}),
+			ui.Fixed(settingsSectionLabelElement("SSH Authorized Key")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{
+				ID:          "advanced_focus_ssh",
+				Value:       a.advancedSSHKey,
+				Placeholder: "ssh-ed25519 AAAA...",
+				Focused:     a.settingsInputFocus == settingsInputAdvancedSSH,
+				Enabled:     !sshState.Pending,
+			}),
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(settingsActionElement("advanced_save_ssh", "Save SSH Key", settingsActionVisual{Enabled: !sshState.Pending}, 128)),
+		)
+		switch {
+		case sshState.Pending:
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		case sshState.Error != "":
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(sshState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 		}
 	}
 	if state.Error != "" {
