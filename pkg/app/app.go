@@ -120,6 +120,11 @@ type App struct {
 	tlsEditor              tlsEditorState
 	tlsEditorLoaded        bool
 	tlsEditorDirty         bool
+	videoCustomEDID        string
+	videoCustomEDIDLoaded  bool
+	videoCustomEDIDDirty   bool
+	videoCustomEDIDMessage string
+	videoCustomEDIDSuccess bool
 	advancedSSHKey         string
 	advancedSSHLoaded      bool
 	advancedSSHDirty       bool
@@ -1102,6 +1107,14 @@ func (a *App) syncTLSEditorLocked(state session.TLSState) {
 	a.tlsEditorLoaded = true
 }
 
+func (a *App) syncCustomEDIDLocked(edid string) {
+	if a.videoCustomEDIDDirty {
+		return
+	}
+	a.videoCustomEDID = edid
+	a.videoCustomEDIDLoaded = true
+}
+
 func (a *App) syncNetworkEditorLocked(settings session.NetworkSettings) {
 	if a.networkEditorDirty {
 		return
@@ -1788,6 +1801,24 @@ func (a *App) invokeAction(id string) {
 		a.invokeEDIDAction("dell_d2721h", videoEDIDPresetDellD2721H)
 	case "video_edid:dell_idrac":
 		a.invokeEDIDAction("dell_idrac", videoEDIDPresetDellIDRAC)
+	case "video_edid_load_custom":
+		text, err := readClipboardText()
+		if err != nil {
+			a.videoCustomEDIDMessage = err.Error()
+			a.videoCustomEDIDSuccess = false
+			return
+		}
+		a.videoCustomEDID = strings.TrimSpace(text)
+		a.videoCustomEDIDDirty = true
+		a.videoCustomEDIDMessage = "Custom EDID loaded from clipboard"
+		a.videoCustomEDIDSuccess = true
+	case "video_edid_clear_custom":
+		a.videoCustomEDID = ""
+		a.videoCustomEDIDDirty = true
+		a.videoCustomEDIDMessage = ""
+		a.videoCustomEDIDSuccess = false
+	case "video_edid_apply_custom":
+		a.invokeCustomEDID()
 	case "access_enable_password":
 		a.setAccessEditorMode(accessEditorModeCreate)
 	case "access_change_password":
@@ -2269,6 +2300,29 @@ func (a *App) invokeEDIDAction(choice, edid string) {
 		if err := a.ctrl.SetEDID(edid); err != nil {
 			return err
 		}
+		a.videoCustomEDIDDirty = false
+		a.videoCustomEDIDMessage = ""
+		a.videoCustomEDIDSuccess = false
+		return a.refreshSettingsSectionSync(sectionVideo)
+	})
+}
+
+func (a *App) invokeCustomEDID() {
+	if a.settingsActionPending(settingsGroupVideoEDID) {
+		return
+	}
+	edid := strings.TrimSpace(a.videoCustomEDID)
+	if edid == "" {
+		a.finishSettingsAction(settingsGroupVideoEDID, a.beginSettingsAction(settingsGroupVideoEDID, "custom"), errors.New("custom EDID is empty"))
+		return
+	}
+	a.withSettingsAction(settingsGroupVideoEDID, "custom", func() error {
+		if err := a.ctrl.SetEDID(edid); err != nil {
+			return err
+		}
+		a.videoCustomEDIDDirty = false
+		a.videoCustomEDIDMessage = "Custom EDID applied"
+		a.videoCustomEDIDSuccess = true
 		return a.refreshSettingsSectionSync(sectionVideo)
 	})
 }

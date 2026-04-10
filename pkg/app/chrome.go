@@ -956,6 +956,7 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Lock()
 		if a.sectionLoadSeq[section] == seq {
 			a.sectionData.Video = state
+			a.syncCustomEDIDLocked(state.State.EDID)
 		}
 		a.mu.Unlock()
 	case sectionAccess:
@@ -1583,12 +1584,29 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 			settingsActionElement("video_edid:dell_d2721h", "Dell", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "dell_d2721h", Active: edid == videoEDIDPresetDellD2721H, Pending: edidState.Pending && edidState.PendingChoice == "dell_d2721h"}, 72),
 			settingsActionElement("video_edid:dell_idrac", "iDRAC", settingsActionVisual{Enabled: !edidState.Pending || edidState.PendingChoice == "dell_idrac", Active: edid == videoEDIDPresetDellIDRAC, Pending: edidState.Pending && edidState.PendingChoice == "dell_idrac"}, 72),
 		}, Spacing: 12, LineSpacing: 8}),
+		ui.Fixed(ui.Spacer{H: 16}),
+		ui.Fixed(settingsSectionLabelElement("Custom EDID")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Paragraph{Text: pemSummary(a.videoCustomEDID), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(ui.Wrap{Children: []ui.Element{
+			settingsActionElement("video_edid_load_custom", "Load from Clipboard", settingsActionVisual{Enabled: !edidState.Pending}, 146),
+			settingsActionElement("video_edid_clear_custom", "Clear", settingsActionVisual{Enabled: !edidState.Pending}, 70),
+			settingsActionElement("video_edid_apply_custom", "Apply Custom", settingsActionVisual{Enabled: !edidState.Pending && strings.TrimSpace(a.videoCustomEDID) != "", Active: !isKnownEDIDPreset(edid) && strings.TrimSpace(edid) != "" && edid == strings.TrimSpace(a.videoCustomEDID), Pending: edidState.Pending && edidState.PendingChoice == "custom"}, 116),
+		}, Spacing: 12, LineSpacing: 8}),
 	}
 	switch {
 	case edidState.Pending:
 		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying EDID…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
 	case edidState.Error != "":
 		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(edidState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+	if a.videoCustomEDIDMessage != "" {
+		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		if a.videoCustomEDIDSuccess {
+			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
+		}
+		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(a.videoCustomEDIDMessage, msgColor)))
 	}
 	return settingsTwoPane(
 		settingsCardElement("Stream", ui.Column{Children: streamChildren}),
@@ -1898,6 +1916,15 @@ func pemSummary(value string) string {
 	}
 	lines := strings.Count(value, "\n") + 1
 	return fmt.Sprintf("%d bytes across %d lines", len(value), lines)
+}
+
+func isKnownEDIDPreset(value string) bool {
+	switch value {
+	case videoEDIDPresetJetKVMDefault, videoEDIDPresetAcerB246WL, videoEDIDPresetASUSPA248QV, videoEDIDPresetDellD2721H, videoEDIDPresetDellIDRAC:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
