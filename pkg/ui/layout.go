@@ -35,17 +35,18 @@ func (c Column) Measure(ctx *Context, constraints Constraints) Size {
 	available := constraints.maxHeight()
 	totalH := 0.0
 	maxW := 0.0
-	first := true
+	totalFlex := 0.0
+	count := 0
 	for _, child := range c.Children {
 		if child.Element == nil {
 			continue
 		}
-		if !first {
+		if count > 0 {
 			totalH += c.Spacing
 		}
-		first = false
+		count++
 		if child.Flex > 0 {
-			maxW = max(maxW, constraints.MinW)
+			totalFlex += child.Flex
 			continue
 		}
 		size := child.Element.Measure(ctx, Constraints{
@@ -54,6 +55,21 @@ func (c Column) Measure(ctx *Context, constraints Constraints) Size {
 		})
 		totalH += size.H
 		maxW = max(maxW, size.W)
+	}
+	if totalFlex > 0 {
+		remaining := max(0, available-totalH)
+		for _, child := range c.Children {
+			if child.Element == nil || child.Flex <= 0 {
+				continue
+			}
+			height := remaining * (child.Flex / totalFlex)
+			size := child.Element.Measure(ctx, Constraints{
+				MaxW: constraints.MaxW,
+				MaxH: height,
+			})
+			maxW = max(maxW, size.W)
+		}
+		totalH += remaining
 	}
 	return constraints.Clamp(Size{W: maxW, H: totalH})
 }
@@ -106,17 +122,18 @@ func (r Row) Measure(ctx *Context, constraints Constraints) Size {
 	available := constraints.maxWidth()
 	totalW := 0.0
 	maxH := 0.0
-	first := true
+	totalFlex := 0.0
+	count := 0
 	for _, child := range r.Children {
 		if child.Element == nil {
 			continue
 		}
-		if !first {
+		if count > 0 {
 			totalW += r.Spacing
 		}
-		first = false
+		count++
 		if child.Flex > 0 {
-			maxH = max(maxH, constraints.MinH)
+			totalFlex += child.Flex
 			continue
 		}
 		size := child.Element.Measure(ctx, Constraints{
@@ -125,6 +142,21 @@ func (r Row) Measure(ctx *Context, constraints Constraints) Size {
 		})
 		totalW += size.W
 		maxH = max(maxH, size.H)
+	}
+	if totalFlex > 0 {
+		remaining := max(0, available-totalW)
+		for _, child := range r.Children {
+			if child.Element == nil || child.Flex <= 0 {
+				continue
+			}
+			width := remaining * (child.Flex / totalFlex)
+			size := child.Element.Measure(ctx, Constraints{
+				MaxW: width,
+				MaxH: constraints.MaxH,
+			})
+			maxH = max(maxH, size.H)
+		}
+		totalW += remaining
 	}
 	return constraints.Clamp(Size{W: totalW, H: maxH})
 }
@@ -211,5 +243,73 @@ func (p Panel) Draw(ctx *Context, bounds Rect) {
 	}
 	if p.Child != nil {
 		p.Child.Draw(ctx, bounds.Inset(p.Insets))
+	}
+}
+
+type Wrap struct {
+	Children    []Element
+	Spacing     float64
+	LineSpacing float64
+}
+
+func (w Wrap) Measure(ctx *Context, constraints Constraints) Size {
+	maxWidth := constraints.MaxW
+	if maxWidth <= 0 {
+		maxWidth = constraints.maxWidth()
+	}
+	x := 0.0
+	lineH := 0.0
+	totalH := 0.0
+	usedW := 0.0
+	count := 0
+	for _, child := range w.Children {
+		if child == nil {
+			continue
+		}
+		size := child.Measure(ctx, Constraints{MaxW: maxWidth, MaxH: constraints.MaxH})
+		if count > 0 && x+size.W > maxWidth {
+			totalH += lineH + w.LineSpacing
+			usedW = max(usedW, x-w.Spacing)
+			x = 0
+			lineH = 0
+			count = 0
+		}
+		if count > 0 {
+			x += w.Spacing
+		}
+		x += size.W
+		lineH = max(lineH, size.H)
+		count++
+	}
+	if count > 0 {
+		totalH += lineH
+		usedW = max(usedW, x)
+	}
+	return constraints.Clamp(Size{W: usedW, H: totalH})
+}
+
+func (w Wrap) Draw(ctx *Context, bounds Rect) {
+	x := bounds.X
+	y := bounds.Y
+	lineH := 0.0
+	count := 0
+	for _, child := range w.Children {
+		if child == nil {
+			continue
+		}
+		size := child.Measure(ctx, Constraints{MaxW: bounds.W, MaxH: bounds.H})
+		if count > 0 && x+size.W > bounds.X+bounds.W {
+			x = bounds.X
+			y += lineH + w.LineSpacing
+			lineH = 0
+			count = 0
+		}
+		if count > 0 {
+			x += w.Spacing
+		}
+		child.Draw(ctx, Rect{X: x, Y: y, W: size.W, H: size.H})
+		x += size.W
+		lineH = max(lineH, size.H)
+		count++
 	}
 }

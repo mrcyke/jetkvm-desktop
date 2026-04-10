@@ -57,6 +57,9 @@ type Button struct {
 	Label   string
 	Enabled bool
 	Active  bool
+	Pending bool
+	MinW    float64
+	Width   float64
 }
 
 func (b Button) Measure(ctx *Context, constraints Constraints) Size {
@@ -64,7 +67,15 @@ func (b Button) Measure(ctx *Context, constraints Constraints) Size {
 	if ctx.MeasureText != nil {
 		labelW, labelH = ctx.MeasureText(b.Label, 13)
 	}
-	return constraints.Clamp(Size{W: max(64, labelW+24), H: max(30, labelH+14)})
+	width := b.Width
+	if width <= 0 {
+		minW := b.MinW
+		if minW <= 0 {
+			minW = 64
+		}
+		width = max(minW, labelW+24)
+	}
+	return constraints.Clamp(Size{W: width, H: max(30, labelH+14)})
 }
 
 func (b Button) Draw(ctx *Context, bounds Rect) {
@@ -74,6 +85,10 @@ func (b Button) Draw(ctx *Context, bounds Rect) {
 	if b.Active {
 		fill = ctx.Theme.ActiveFill
 		stroke = ctx.Theme.ActiveStroke
+	}
+	if b.Pending {
+		fill = color.RGBA{R: 88, G: 70, B: 24, A: 255}
+		stroke = color.RGBA{R: 234, G: 179, B: 8, A: 180}
 	}
 	if !b.Enabled {
 		fill = ctx.Theme.DisabledFill

@@ -645,28 +645,7 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 		rightH := 48 + descH + 20 + 30 + 8 + 30 + 8 + 30 + 18
 		return max(214, rightH)
 	case sectionMouse:
-		leftW := (w - 14) * 0.54
-		rightW := w - leftW - 14
-		descH := ui.WrappedTextHeight("Throttle local wheel bursts before sending them to the device.", leftW-32, 12)
-		leftH := 286.0 + 30 + 18
-		if descH > 32 {
-			leftH += descH - 32
-		}
-		rightH := 232.0 + 30 + 18
-		if a.jigglerEditorOpen {
-			rightH = 496.0 + 24
-		}
-		a.mu.RLock()
-		state := a.sectionData.Mouse
-		a.mu.RUnlock()
-		if state.Error != "" {
-			base := 208.0
-			if a.jigglerEditorOpen {
-				base = 520
-			}
-			rightH = max(rightH, base+ui.WrappedTextHeight(state.Error, rightW-32, 12)+24)
-		}
-		return max(leftH, rightH)
+		return a.measureSettingsBody(a.settingsMouseBody(a.ctrl.Snapshot()), w)
 	case sectionVideo:
 		leftW := (w - 14) * 0.48
 		rightW := w - leftW - 14
@@ -1031,17 +1010,224 @@ func (a *App) drawSettingsActionStatus(screen *ebiten.Image, group settingsActio
 	}
 }
 
-func (a *App) drawSettingsInput(screen *ebiten.Image, id string, x, y, w, h float64, value, placeholder string, focused bool) {
-	ctx := a.newUIContext(screen, func(btn chromeButton) {
-		a.settingsButtons = append(a.settingsButtons, btn)
-	})
-	ui.TextField{
-		ID:          id,
-		Value:       trimTextToWidth(value, w-24, 13),
-		Placeholder: placeholder,
-		Focused:     focused,
-		Enabled:     true,
-	}.Draw(ctx, ui.Rect{X: x, Y: y, W: w, H: h})
+func (a *App) measureSettingsBody(body ui.Element, width float64) float64 {
+	if body == nil {
+		return 0
+	}
+	ctx := a.newUIContext(nil, func(chromeButton) {})
+	size := body.Measure(ctx, ui.Constraints{MaxW: width})
+	return size.H
+}
+
+func settingsCardElement(title string, body ui.Element) ui.Element {
+	children := make([]ui.Child, 0, 3)
+	if title != "" {
+		children = append(children,
+			ui.Fixed(ui.Label{Text: title, Size: 15, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+			ui.Fixed(ui.Spacer{H: 12}),
+		)
+	}
+	if body != nil {
+		children = append(children, ui.Fixed(body))
+	}
+	return ui.Panel{
+		Fill:   color.RGBA{R: 18, G: 28, B: 40, A: 255},
+		Stroke: color.RGBA{R: 54, G: 68, B: 84, A: 180},
+		Insets: ui.UniformInsets(16),
+		Child: ui.Column{
+			Children: children,
+			Spacing:  0,
+		},
+	}
+}
+
+func settingsActionElement(id, label string, visual settingsActionVisual, width float64) ui.Element {
+	return ui.Button{
+		ID:      id,
+		Label:   label,
+		Enabled: visual.Enabled,
+		Active:  visual.Active,
+		Pending: visual.Pending,
+		Width:   width,
+	}
+}
+
+func settingsStatusElement(text string, clr color.Color) ui.Element {
+	if text == "" {
+		return nil
+	}
+	return ui.Paragraph{Text: text, Size: 12, Color: clr}
+}
+
+func settingsSectionLabelElement(label string) ui.Element {
+	return ui.Label{Text: label, Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}
+}
+
+func settingsKeyValueElement(label, value string, split float64) ui.Element {
+	return ui.KeyValue{
+		Label:      label,
+		Value:      fallbackLabel(value, "Unavailable"),
+		LabelWidth: split - 12,
+	}
+}
+
+func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
+	a.mu.RLock()
+	state := a.sectionData.Mouse
+	a.mu.RUnlock()
+	jiggler := a.settingsAction(settingsGroupJiggler)
+
+	leftChildren := []ui.Child{
+		ui.Fixed(settingsSectionLabelElement("Remote mode")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Wrap{
+			Children: []ui.Element{
+				settingsActionElement("mouse_absolute", "Absolute", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative}, 110),
+				settingsActionElement("mouse_relative", "Relative", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative}, 110),
+			},
+			Spacing:     12,
+			LineSpacing: 8,
+		}),
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Local cursor")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(settingsActionElement("mouse_hide_cursor", "Hide Host Cursor", settingsActionVisual{Enabled: true, Active: a.hideCursor}, 154)),
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsSectionLabelElement("Wheel")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Paragraph{
+			Text:  "Throttle local wheel bursts before sending them to the device.",
+			Size:  12,
+			Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+		}),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(ui.Wrap{
+			Children: []ui.Element{
+				settingsActionElement("scroll_0", "Off", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0}, 64),
+				settingsActionElement("scroll_10", "Low", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond}, 64),
+				settingsActionElement("scroll_25", "Medium", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond}, 84),
+				settingsActionElement("scroll_50", "High", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond}, 72),
+				settingsActionElement("scroll_100", "Very High", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond}, 108),
+				settingsActionElement("scroll_invert", "Invert Scroll", settingsActionVisual{Enabled: true, Active: a.invertScroll}, 128),
+			},
+			Spacing:     12,
+			LineSpacing: 8,
+		}),
+	}
+
+	rightChildren := []ui.Child{}
+	if state.Loading {
+		rightChildren = append(rightChildren,
+			ui.Fixed(ui.Label{Text: "Loading jiggler state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		)
+	} else {
+		rightChildren = append(rightChildren,
+			ui.Fixed(settingsKeyValueElement("State", boolPtrWord(state.JigglerEnabled), 70)),
+			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsKeyValueElement("Preset", jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig), 70)),
+			ui.Fixed(ui.Spacer{H: 16}),
+			ui.Fixed(ui.Paragraph{
+				Text:  "Use native presets or open a compact custom editor for the device jiggler schedule.",
+				Size:  12,
+				Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+			}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(ui.Wrap{
+				Children: []ui.Element{
+					settingsActionElement("jiggler_disabled", "Disabled", settingsActionVisual{Enabled: state.JigglerEnabled != nil && (!jiggler.Pending || jiggler.PendingChoice == "disabled"), Active: state.JigglerEnabled != nil && !*state.JigglerEnabled, Pending: jiggler.Pending && jiggler.PendingChoice == "disabled"}, 88),
+					settingsActionElement("jiggler_frequent", "Frequent", settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "frequent", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Frequent", Pending: jiggler.Pending && jiggler.PendingChoice == "frequent"}, 88),
+					settingsActionElement("jiggler_standard", "Standard", settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "standard", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Standard", Pending: jiggler.Pending && jiggler.PendingChoice == "standard"}, 88),
+					settingsActionElement("jiggler_light", "Light", settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "light", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Light", Pending: jiggler.Pending && jiggler.PendingChoice == "light"}, 72),
+					settingsActionElement("jiggler_custom", "Custom", settingsActionVisual{Enabled: !jiggler.Pending, Active: a.jigglerEditorOpen || jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Custom"}, 84),
+				},
+				Spacing:     12,
+				LineSpacing: 8,
+			}),
+		)
+		if a.jigglerEditorOpen {
+			rightChildren = append(rightChildren,
+				ui.Fixed(ui.Spacer{H: 18}),
+				ui.Fixed(settingsSectionLabelElement("Custom config")),
+				ui.Fixed(ui.Spacer{H: 10}),
+				ui.Fixed(ui.Wrap{
+					Children: []ui.Element{
+						settingsKeyValueElement("Idle (s)", fmt.Sprintf("%d", a.jigglerEditorConfig.InactivityLimitSeconds), 70),
+						settingsActionElement("jiggler_custom_inactivity_minus", "-", settingsActionVisual{Enabled: true}, 30),
+						settingsActionElement("jiggler_custom_inactivity_plus", "+", settingsActionVisual{Enabled: true}, 30),
+						settingsKeyValueElement("Jitter", fmt.Sprintf("%d%%", a.jigglerEditorConfig.JitterPercentage), 56),
+						settingsActionElement("jiggler_custom_jitter_minus", "-", settingsActionVisual{Enabled: true}, 30),
+						settingsActionElement("jiggler_custom_jitter_plus", "+", settingsActionVisual{Enabled: true}, 30),
+					},
+					Spacing:     8,
+					LineSpacing: 8,
+				}),
+				ui.Fixed(ui.Spacer{H: 16}),
+				ui.Fixed(settingsSectionLabelElement("Cron")),
+				ui.Fixed(ui.Spacer{H: 8}),
+				ui.Fixed(ui.TextField{
+					ID:          "jiggler_focus_cron",
+					Value:       a.jigglerEditorConfig.ScheduleCronTab,
+					Placeholder: "0 * * * * *",
+					Focused:     a.settingsInputFocus == settingsInputJigglerCron,
+					Enabled:     true,
+				}),
+				ui.Fixed(ui.Spacer{H: 16}),
+				ui.Fixed(settingsSectionLabelElement("Timezone")),
+				ui.Fixed(ui.Spacer{H: 8}),
+				ui.Fixed(ui.TextField{
+					ID:          "jiggler_focus_timezone",
+					Value:       a.jigglerEditorConfig.Timezone,
+					Placeholder: "UTC",
+					Focused:     a.settingsInputFocus == settingsInputJigglerTimezone,
+					Enabled:     true,
+				}),
+				ui.Fixed(ui.Spacer{H: 16}),
+				ui.Fixed(ui.Wrap{
+					Children: []ui.Element{
+						settingsActionElement("jiggler_custom_save", "Save Custom", settingsActionVisual{Enabled: !jiggler.Pending}, 116),
+						settingsActionElement("jiggler_custom_cancel", "Cancel", settingsActionVisual{Enabled: !jiggler.Pending}, 86),
+					},
+					Spacing:     12,
+					LineSpacing: 8,
+				}),
+			)
+		}
+		statusText := ""
+		statusColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		switch {
+		case jiggler.Pending:
+			statusText = "Applying…"
+		case jiggler.Error != "":
+			statusText = jiggler.Error
+			statusColor = color.RGBA{R: 220, G: 132, B: 132, A: 255}
+		}
+		if statusText != "" {
+			rightChildren = append(rightChildren,
+				ui.Fixed(ui.Spacer{H: 16}),
+				ui.Fixed(settingsStatusElement(statusText, statusColor)),
+			)
+		}
+		if a.jigglerEditorError != "" {
+			rightChildren = append(rightChildren,
+				ui.Fixed(ui.Spacer{H: 12}),
+				ui.Fixed(settingsStatusElement(a.jigglerEditorError, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+			)
+		}
+	}
+	if state.Error != "" {
+		rightChildren = append(rightChildren,
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+		)
+	}
+
+	return ui.Row{
+		Children: []ui.Child{
+			ui.Flex(settingsCardElement("Pointer", ui.Column{Children: leftChildren}), 54),
+			ui.Flex(settingsCardElement("Jiggler", ui.Column{Children: rightChildren}), 46),
+		},
+		Spacing: 14,
+	}
 }
 
 func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -1083,69 +1269,10 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 }
 
 func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
-	a.mu.RLock()
-	state := a.sectionData.Mouse
-	a.mu.RUnlock()
-	leftW := (w - 14) * 0.54
-	rightX := x + leftW + 14
-	rightW := w - leftW - 14
-	cardH := a.settingsWideBodyHeight(sectionMouse, w)
-	a.drawSettingsCard(screen, x, y, leftW, cardH, "Pointer", "")
-	drawSettingsSectionLabel(screen, "Remote mode", x+16, y+48)
-	a.drawSettingsAction(screen, "mouse_absolute", "Absolute", x+16, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative})
-	a.drawSettingsAction(screen, "mouse_relative", "Relative", x+138, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative})
-	drawSettingsSectionLabel(screen, "Local cursor", x+16, y+114)
-	a.drawSettingsAction(screen, "mouse_hide_cursor", "Hide Host Cursor", x+16, y+132, 154, settingsActionVisual{Enabled: true, Active: a.hideCursor})
-	drawSettingsSectionLabel(screen, "Wheel", x+16, y+180)
-	ui.DrawWrappedText(screen, "Throttle local wheel bursts before sending them to the device.", x+16, y+198, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "scroll_0", "Off", x+16, y+248, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0})
-	a.drawSettingsAction(screen, "scroll_10", "Low", x+92, y+248, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_25", "Medium", x+168, y+248, 84, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_50", "High", x+264, y+248, 72, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_100", "Very High", x+348, y+248, 108, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_invert", "Invert Scroll", x+16, y+286, 128, settingsActionVisual{Enabled: true, Active: a.invertScroll})
-	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Jiggler", "")
-	if state.Loading {
-		ui.DrawText(screen, "Loading jiggler state…", rightX+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
-	} else {
-		drawSettingsKeyValue(screen, "State", boolPtrWord(state.JigglerEnabled), rightX+16, y+48, 70)
-		drawSettingsKeyValue(screen, "Preset", jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig), rightX+16, y+74, 70)
-		ui.DrawWrappedText(screen, "Use native presets or open a compact custom editor for the device jiggler schedule.", rightX+16, y+106, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-		jiggler := a.settingsAction(settingsGroupJiggler)
-		a.drawSettingsAction(screen, "jiggler_disabled", "Disabled", rightX+16, y+156, 88, settingsActionVisual{Enabled: state.JigglerEnabled != nil && (!jiggler.Pending || jiggler.PendingChoice == "disabled"), Active: state.JigglerEnabled != nil && !*state.JigglerEnabled, Pending: jiggler.Pending && jiggler.PendingChoice == "disabled"})
-		a.drawSettingsAction(screen, "jiggler_frequent", "Frequent", rightX+116, y+156, 88, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "frequent", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Frequent", Pending: jiggler.Pending && jiggler.PendingChoice == "frequent"})
-		a.drawSettingsAction(screen, "jiggler_standard", "Standard", rightX+216, y+156, 88, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "standard", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Standard", Pending: jiggler.Pending && jiggler.PendingChoice == "standard"})
-		a.drawSettingsAction(screen, "jiggler_light", "Light", rightX+16, y+194, 72, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "light", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Light", Pending: jiggler.Pending && jiggler.PendingChoice == "light"})
-		a.drawSettingsAction(screen, "jiggler_custom", "Custom", rightX+100, y+194, 84, settingsActionVisual{Enabled: !jiggler.Pending, Active: a.jigglerEditorOpen || jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Custom"})
-		if a.jigglerEditorOpen {
-			drawSettingsSectionLabel(screen, "Custom config", rightX+16, y+236)
-			drawSettingsKeyValue(screen, "Idle (s)", fmt.Sprintf("%d", a.jigglerEditorConfig.InactivityLimitSeconds), rightX+16, y+258, 70)
-			a.drawSettingsAction(screen, "jiggler_custom_inactivity_minus", "-", rightX+148, y+246, 30, settingsActionVisual{Enabled: true})
-			a.drawSettingsAction(screen, "jiggler_custom_inactivity_plus", "+", rightX+186, y+246, 30, settingsActionVisual{Enabled: true})
-			drawSettingsKeyValue(screen, "Jitter", fmt.Sprintf("%d%%", a.jigglerEditorConfig.JitterPercentage), rightX+232, y+258, 56)
-			a.drawSettingsAction(screen, "jiggler_custom_jitter_minus", "-", rightX+320, y+246, 30, settingsActionVisual{Enabled: true})
-			a.drawSettingsAction(screen, "jiggler_custom_jitter_plus", "+", rightX+358, y+246, 30, settingsActionVisual{Enabled: true})
-			drawSettingsSectionLabel(screen, "Cron", rightX+16, y+298)
-			a.drawSettingsInput(screen, "jiggler_focus_cron", rightX+16, y+316, rightW-32, 34, a.jigglerEditorConfig.ScheduleCronTab, "0 * * * * *", a.settingsInputFocus == settingsInputJigglerCron)
-			drawSettingsSectionLabel(screen, "Timezone", rightX+16, y+366)
-			a.drawSettingsInput(screen, "jiggler_focus_timezone", rightX+16, y+384, rightW-32, 34, a.jigglerEditorConfig.Timezone, "UTC", a.settingsInputFocus == settingsInputJigglerTimezone)
-			a.drawSettingsAction(screen, "jiggler_custom_save", "Save Custom", rightX+16, y+434, 116, settingsActionVisual{Enabled: !jiggler.Pending})
-			a.drawSettingsAction(screen, "jiggler_custom_cancel", "Cancel", rightX+144, y+434, 86, settingsActionVisual{Enabled: !jiggler.Pending})
-			a.drawSettingsActionStatus(screen, settingsGroupJiggler, rightX+16, y+474, rightW-32)
-			if a.jigglerEditorError != "" {
-				ui.DrawWrappedText(screen, a.jigglerEditorError, rightX+16, y+496, rightW-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
-			}
-		} else {
-			a.drawSettingsActionStatus(screen, settingsGroupJiggler, rightX+16, y+232, rightW-32)
-		}
-	}
-	if state.Error != "" {
-		errY := y + 232.0
-		if a.jigglerEditorOpen {
-			errY = y + 520
-		}
-		ui.DrawWrappedText(screen, state.Error, rightX+16, errY, rightW-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
-	}
+	ctx := a.newUIContext(screen, func(btn chromeButton) {
+		a.settingsButtons = append(a.settingsButtons, btn)
+	})
+	a.settingsMouseBody(snap).Draw(ctx, ui.Rect{X: x, Y: y, W: w, H: a.settingsSectionBodyHeight(sectionMouse, w)})
 }
 
 func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
