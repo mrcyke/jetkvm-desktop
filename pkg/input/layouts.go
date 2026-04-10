@@ -8,15 +8,34 @@ type KeyboardLayout struct {
 }
 
 var supportedKeyboardLayouts = []KeyboardLayout{
-	{Code: "en-US", Label: "US"},
-	{Code: "en-UK", Label: "UK"},
-	{Code: "da-DK", Label: "Danish"},
-	{Code: "de-DE", Label: "German"},
-	{Code: "fr-FR", Label: "French"},
-	{Code: "es-ES", Label: "Spanish"},
-	{Code: "it-IT", Label: "Italian"},
+	{Code: "cs-CZ", Label: "Čeština"},
+	{Code: "da-DK", Label: "Dansk"},
+	{Code: "de-CH", Label: "Schwiizerdütsch"},
+	{Code: "de-DE", Label: "Deutsch"},
+	{Code: "en-UK", Label: "English (UK)"},
+	{Code: "en-US", Label: "English (US)"},
+	{Code: "es-ES", Label: "Español"},
+	{Code: "nl-BE", Label: "Belgisch Nederlands"},
+	{Code: "fr-CH", Label: "Français de Suisse"},
+	{Code: "fr-FR", Label: "Français"},
+	{Code: "hu-HU", Label: "Magyar"},
+	{Code: "it-IT", Label: "Italiano"},
 	{Code: "ja-JP", Label: "Japanese"},
+	{Code: "nb-NO", Label: "Norsk bokmål"},
+	{Code: "pl-PL", Label: "Polski"},
+	{Code: "pt-PT", Label: "Português"},
+	{Code: "sv-SE", Label: "Svenska"},
+	{Code: "sl-SI", Label: "Slovenian"},
+	{Code: "ru-RU", Label: "Русская"},
 }
+
+var supportedKeyboardLayoutCodes = func() map[string]struct{} {
+	codes := make(map[string]struct{}, len(supportedKeyboardLayouts))
+	for _, layout := range supportedKeyboardLayouts {
+		codes[layout.Code] = struct{}{}
+	}
+	return codes
+}()
 
 func SupportedKeyboardLayouts() []KeyboardLayout {
 	out := make([]KeyboardLayout, len(supportedKeyboardLayouts))
@@ -27,10 +46,11 @@ func SupportedKeyboardLayouts() []KeyboardLayout {
 func NormalizeKeyboardLayoutCode(layout string) string {
 	layout = strings.TrimSpace(layout)
 	layout = strings.ReplaceAll(layout, "_", "-")
-	switch layout {
-	case "", "en-US", "en-UK", "da-DK", "de-DE", "fr-FR", "es-ES", "it-IT", "ja-JP":
+	if layout == "" {
 		return layout
-	default:
-		return "en-US"
 	}
+	if _, ok := supportedKeyboardLayoutCodes[layout]; ok {
+		return layout
+	}
+	return "en-US"
 }
