@@ -648,10 +648,13 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 		leftW := (w - 14) * 0.54
 		rightW := w - leftW - 14
 		descH := ui.WrappedTextHeight("Throttle local wheel bursts before sending them to the device.", leftW-32, 12)
-		leftH := 48 + descH + 20 + 30 + 8 + 30 + 18 + 68
-		rightH := 244.0
+		leftH := 286.0 + 30 + 18
+		if descH > 32 {
+			leftH += descH - 32
+		}
+		rightH := 232.0 + 30 + 18
 		if a.jigglerEditorOpen {
-			rightH = 560
+			rightH = 496.0 + 24
 		}
 		a.mu.RLock()
 		state := a.sectionData.Mouse
