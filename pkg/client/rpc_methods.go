@@ -64,6 +64,28 @@ func (c *Client) GetUpdateStatus(ctx context.Context) (UpdateStatus, error) {
 	return status, err
 }
 
+func (c *Client) GetMQTTSettings(ctx context.Context) (MQTTSettings, error) {
+	var settings MQTTSettings
+	err := c.Call(ctx, "getMqttSettings", nil, &settings)
+	return settings, err
+}
+
+func (c *Client) SetMQTTSettings(ctx context.Context, settings MQTTSettings) error {
+	return c.Call(ctx, "setMqttSettings", mqttSettingsRequest{Settings: settings}, nil)
+}
+
+func (c *Client) GetMQTTStatus(ctx context.Context) (MQTTStatus, error) {
+	var status MQTTStatus
+	err := c.Call(ctx, "getMqttStatus", nil, &status)
+	return status, err
+}
+
+func (c *Client) TestMQTTConnection(ctx context.Context, settings MQTTSettings) (MQTTTestResult, error) {
+	var result MQTTTestResult
+	err := c.Call(ctx, "testMqttConnection", mqttSettingsRequest{Settings: settings}, &result)
+	return result, err
+}
+
 func (c *Client) GetAutoUpdateState(ctx context.Context) (bool, error) {
 	var enabled bool
 	err := c.Call(ctx, "getAutoUpdateState", nil, &enabled)

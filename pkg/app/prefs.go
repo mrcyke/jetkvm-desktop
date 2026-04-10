@@ -11,6 +11,8 @@ import (
 type Preferences struct {
 	Theme           Theme          `json:"theme"`
 	PinChrome       bool           `json:"pin_chrome"`
+	HideHeaderBar   bool           `json:"hide_header_bar"`
+	HideStatusBar   bool           `json:"hide_status_bar"`
 	ChromeAnchor    ChromeAnchor   `json:"chrome_anchor"`
 	ChromeLayout    ChromeLayout   `json:"chrome_layout"`
 	HideCursor      bool           `json:"hide_cursor"`
@@ -65,6 +67,8 @@ func defaultPreferences() Preferences {
 	return Preferences{
 		Theme:           themeDark,
 		PinChrome:       false,
+		HideHeaderBar:   false,
+		HideStatusBar:   false,
 		ChromeAnchor:    chromeAnchorTopRight,
 		ChromeLayout:    chromeLayoutHorizontal,
 		HideCursor:      false,

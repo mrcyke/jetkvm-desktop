@@ -71,6 +71,9 @@ type DeviceState struct {
 	USBEmulation        bool
 	USBConfig           map[string]any
 	USBDevices          map[string]any
+	MQTTSettings        map[string]any
+	MQTTConnected       bool
+	MQTTError           string
 }
 
 type InputRecord struct {
@@ -166,6 +169,19 @@ func NewServer(cfg Config) (*Server, error) {
 				"mass_storage":   true,
 				"serial_console": false,
 				"network":        false,
+			},
+			MQTTSettings: map[string]any{
+				"enabled":             false,
+				"broker":              "mqtt.local",
+				"port":                1883,
+				"username":            "",
+				"password":            "",
+				"base_topic":          "jetkvm",
+				"use_tls":             false,
+				"tls_insecure":        false,
+				"enable_ha_discovery": false,
+				"enable_actions":      false,
+				"debounce_ms":         0,
 			},
 		},
 		inputs: make([]InputRecord, 0, 32),
@@ -802,6 +818,14 @@ func requestParams(raw any) map[string]any {
 	return params
 }
 
+func mapsClone(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
 func (s *session) handleRPC(data []byte) error {
 	decoded, err := jsonrpc.DecodeMessage(data)
 	if err != nil {
@@ -819,6 +843,7 @@ func (s *session) handleRPC(data []byte) error {
 	}
 	applyButDrop := s.serverRef.cfg.Faults.ApplyButDropRPCMethod
 	params := requestParams(req.Params)
+	const mqttPasswordMask = "********"
 
 	var resp jsonrpc.Response
 	switch req.Method {
@@ -965,6 +990,42 @@ func (s *session) handleRPC(data []byte) error {
 			}
 		} else {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing params", nil)
+		}
+	case "getMqttSettings":
+		settings := mapsClone(s.serverRef.state.MQTTSettings)
+		if password, ok := settings["password"].(string); ok && password != "" {
+			settings["password"] = mqttPasswordMask
+		}
+		resp = jsonrpc.NewResponse(req.ID, settings)
+	case "setMqttSettings":
+		if settings, ok := params["settings"].(map[string]any); ok {
+			next := mapsClone(settings)
+			if password, ok := next["password"].(string); ok && password == mqttPasswordMask {
+				if currentPassword, ok := s.serverRef.state.MQTTSettings["password"].(string); ok {
+					next["password"] = currentPassword
+				}
+			}
+			s.serverRef.state.MQTTSettings = next
+			if enabled, ok := next["enabled"].(bool); ok {
+				s.serverRef.state.MQTTConnected = enabled
+			}
+			s.serverRef.state.MQTTError = ""
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing settings", nil)
+		}
+	case "getMqttStatus":
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{"connected": s.serverRef.state.MQTTConnected, "error": s.serverRef.state.MQTTError})
+	case "testMqttConnection":
+		if settings, ok := params["settings"].(map[string]any); ok {
+			broker, _ := settings["broker"].(string)
+			if strings.TrimSpace(broker) == "" {
+				resp = jsonrpc.NewResponse(req.ID, map[string]any{"success": false, "error": "broker address is required"})
+			} else {
+				resp = jsonrpc.NewResponse(req.ID, map[string]any{"success": true})
+			}
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing settings", nil)
 		}
 	case "getKeyboardMacros":
 		resp = jsonrpc.NewResponse(req.ID, []any{})

@@ -277,6 +277,84 @@ func TestControllerVirtualMediaURLMountAndUnmount(t *testing.T) {
 	}
 }
 
+func TestControllerLocalPasswordLifecycle(t *testing.T) {
+	srv, err := emulator.NewServer(emulator.Config{
+		ListenAddr: "127.0.0.1:0",
+		AuthMode:   emulator.AuthModeNoPassword,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil && ctx.Err() == nil {
+				t.Errorf("server: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down")
+		}
+	})
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.BaseURL() == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.BaseURL() == "" {
+		t.Fatal("server did not start")
+	}
+
+	controller := New(Config{
+		BaseURL:    srv.BaseURL(),
+		RPCTimeout: 2 * time.Second,
+		Reconnect:  true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+
+	mode, _, err := controller.GetLocalAccessState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != LocalAuthModeNoPassword {
+		t.Fatalf("initial auth mode = %v, want noPassword", mode)
+	}
+
+	if err := controller.CreateLocalPassword("password123"); err != nil {
+		t.Fatal(err)
+	}
+	mode, _, err = controller.GetLocalAccessState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != LocalAuthModePassword {
+		t.Fatalf("auth mode after create = %v, want password", mode)
+	}
+
+	if err := controller.UpdateLocalPassword("password123", "password456"); err != nil {
+		t.Fatal(err)
+	}
+	controller.SetPassword("password456")
+	if err := controller.DeleteLocalPassword("password456"); err != nil {
+		t.Fatal(err)
+	}
+	mode, _, err = controller.GetLocalAccessState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != LocalAuthModeNoPassword {
+		t.Fatalf("auth mode after delete = %v, want noPassword", mode)
+	}
+}
+
 func TestControllerUploadAndMountStorageFile(t *testing.T) {
 	srv, ctx, cancel := startEmulator(t)
 	defer cancel()

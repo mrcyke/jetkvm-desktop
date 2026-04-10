@@ -1,5 +1,13 @@
 package session
 
+type LocalAuthMode uint8
+
+const (
+	LocalAuthModeUnknown LocalAuthMode = iota
+	LocalAuthModeNoPassword
+	LocalAuthModePassword
+)
+
 type TLSMode string
 
 const (
@@ -23,8 +31,10 @@ type CloudState struct {
 }
 
 type AccessState struct {
-	Cloud CloudState
-	TLS   TLSMode
+	LocalAuthMode LocalAuthMode
+	LoopbackOnly  bool
+	Cloud         CloudState
+	TLS           TLSMode
 }
 
 type USBConfig struct {
@@ -73,6 +83,30 @@ type JigglerConfig struct {
 type VersionInfo struct {
 	AppVersion    string
 	SystemVersion string
+}
+
+type MQTTSettings struct {
+	Enabled           bool
+	Broker            string
+	Port              int
+	Username          string
+	Password          string
+	BaseTopic         string
+	UseTLS            bool
+	TLSInsecure       bool
+	EnableHADiscovery bool
+	EnableActions     bool
+	DebounceMs        int
+}
+
+type MQTTStatus struct {
+	Connected bool
+	Error     string
+}
+
+type MQTTTestResult struct {
+	Success bool
+	Error   string
 }
 
 type AdvancedState struct {

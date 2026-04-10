@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -71,5 +72,88 @@ func TestLoginReturnsRetryAfterMessage(t *testing.T) {
 	}
 	if authErr.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status code = %d, want %d", authErr.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestGetDeviceInfoParsesLocalAuthMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/device" {
+			t.Fatalf("path = %q, want /device", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authMode":     "password",
+			"deviceId":     "jetkvm-test",
+			"loopbackOnly": true,
+		})
+	}))
+	defer srv.Close()
+
+	client, err := NewClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := client.GetDeviceInfo(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AuthMode != LocalAuthModePassword {
+		t.Fatalf("auth mode = %v, want password", info.AuthMode)
+	}
+	if info.DeviceID != "jetkvm-test" {
+		t.Fatalf("device id = %q, want jetkvm-test", info.DeviceID)
+	}
+	if !info.LoopbackOnly {
+		t.Fatal("expected loopbackOnly true")
+	}
+}
+
+func TestLocalPasswordMutationsUseExpectedEndpoints(t *testing.T) {
+	type requestRecord struct {
+		Method string
+		Path   string
+	}
+	var requests []requestRecord
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, requestRecord{Method: r.Method, Path: r.URL.Path})
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/auth/password-local":
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPut && r.URL.Path == "/auth/password-local":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodDelete && r.URL.Path == "/auth/local-password":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := NewClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CreateLocalPassword(context.Background(), srv.URL, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.UpdateLocalPassword(context.Background(), srv.URL, "password123", "password456"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteLocalPassword(context.Background(), srv.URL, "password456"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []requestRecord{
+		{Method: http.MethodPost, Path: "/auth/password-local"},
+		{Method: http.MethodPut, Path: "/auth/password-local"},
+		{Method: http.MethodDelete, Path: "/auth/local-password"},
+	}
+	if len(requests) != len(want) {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+	for i := range want {
+		if requests[i] != want[i] {
+			t.Fatalf("request %d = %#v, want %#v", i, requests[i], want[i])
+		}
 	}
 }

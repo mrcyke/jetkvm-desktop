@@ -145,6 +145,22 @@ func (c *Client) Lifecycle() <-chan LifecycleEvent {
 	return c.lifecycleCh
 }
 
+func (c *Client) DeviceInfo(ctx context.Context) (auth.DeviceInfo, error) {
+	return c.authClient.GetDeviceInfo(ctx, c.cfg.BaseURL)
+}
+
+func (c *Client) CreateLocalPassword(ctx context.Context, password string) error {
+	return c.authClient.CreateLocalPassword(ctx, c.cfg.BaseURL, password)
+}
+
+func (c *Client) UpdateLocalPassword(ctx context.Context, oldPassword, newPassword string) error {
+	return c.authClient.UpdateLocalPassword(ctx, c.cfg.BaseURL, oldPassword, newPassword)
+}
+
+func (c *Client) DeleteLocalPassword(ctx context.Context, password string) error {
+	return c.authClient.DeleteLocalPassword(ctx, c.cfg.BaseURL, password)
+}
+
 func (c *Client) SignalingMode() SignalingMode {
 	return c.signalMode
 }

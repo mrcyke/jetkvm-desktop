@@ -107,11 +107,11 @@ func (i *launcherMode) UnmarshalText(text []byte) error {
 	return err
 }
 
-const _settingsActionGroupName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejiggler"
+const _settingsActionGroupName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejigglerlocal_authmqtt_savemqtt_test"
 
-var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 36, 52, 65, 76, 87, 101, 108}
+var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 36, 52, 65, 76, 87, 101, 108, 118, 127, 136}
 
-const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejiggler"
+const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationusb_devicesauto_updatedeveloper_modejigglerlocal_authmqtt_savemqtt_test"
 
 func (i settingsActionGroup) String() string {
 	if i >= settingsActionGroup(len(_settingsActionGroupIndex)-1) {
@@ -133,9 +133,12 @@ func _settingsActionGroupNoOp() {
 	_ = x[settingsGroupAutoUpdate-(6)]
 	_ = x[settingsGroupDeveloperMode-(7)]
 	_ = x[settingsGroupJiggler-(8)]
+	_ = x[settingsGroupLocalAuth-(9)]
+	_ = x[settingsGroupMQTTSave-(10)]
+	_ = x[settingsGroupMQTTTest-(11)]
 }
 
-var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupDeveloperMode, settingsGroupJiggler}
+var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupDeveloperMode, settingsGroupJiggler, settingsGroupLocalAuth, settingsGroupMQTTSave, settingsGroupMQTTTest}
 
 var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupName[0:15]:         settingsGroupKeyboardLayout,
@@ -156,6 +159,12 @@ var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupLowerName[87:101]:  settingsGroupDeveloperMode,
 	_settingsActionGroupName[101:108]:      settingsGroupJiggler,
 	_settingsActionGroupLowerName[101:108]: settingsGroupJiggler,
+	_settingsActionGroupName[108:118]:      settingsGroupLocalAuth,
+	_settingsActionGroupLowerName[108:118]: settingsGroupLocalAuth,
+	_settingsActionGroupName[118:127]:      settingsGroupMQTTSave,
+	_settingsActionGroupLowerName[118:127]: settingsGroupMQTTSave,
+	_settingsActionGroupName[127:136]:      settingsGroupMQTTTest,
+	_settingsActionGroupLowerName[127:136]: settingsGroupMQTTTest,
 }
 
 var _settingsActionGroupNames = []string{
@@ -168,6 +177,9 @@ var _settingsActionGroupNames = []string{
 	_settingsActionGroupName[76:87],
 	_settingsActionGroupName[87:101],
 	_settingsActionGroupName[101:108],
+	_settingsActionGroupName[108:118],
+	_settingsActionGroupName[118:127],
+	_settingsActionGroupName[127:136],
 }
 
 // settingsActionGroupString retrieves an enum value from the enum constants string name.

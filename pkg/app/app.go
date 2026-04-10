@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +116,12 @@ type App struct {
 	jigglerEditorOpen      bool
 	jigglerEditorConfig    session.JigglerConfig
 	jigglerEditorError     string
+	accessEditor           accessEditorState
+	mqttEditor             mqttEditorState
+	mqttEditorLoaded       bool
+	mqttEditorDirty        bool
+	mqttTestMessage        string
+	mqttTestSuccess        bool
 }
 
 type statsPoint struct {
@@ -146,6 +153,9 @@ const (
 	settingsGroupAutoUpdate                                // auto_update
 	settingsGroupDeveloperMode                             // developer_mode
 	settingsGroupJiggler                                   // jiggler
+	settingsGroupLocalAuth                                 // local_auth
+	settingsGroupMQTTSave                                  // mqtt_save
+	settingsGroupMQTTTest                                  // mqtt_test
 )
 
 type settingsActionState struct {
@@ -170,7 +180,54 @@ const (
 	settingsInputNone settingsInputField = iota
 	settingsInputJigglerCron
 	settingsInputJigglerTimezone
+	settingsInputAccessPassword
+	settingsInputAccessConfirmPassword
+	settingsInputAccessOldPassword
+	settingsInputAccessNewPassword
+	settingsInputAccessConfirmNewPassword
+	settingsInputAccessDisablePassword
+	settingsInputMQTTBroker
+	settingsInputMQTTPort
+	settingsInputMQTTUsername
+	settingsInputMQTTPassword
+	settingsInputMQTTBaseTopic
+	settingsInputMQTTDebounce
 )
+
+type mqttEditorState struct {
+	Enabled           bool
+	Broker            string
+	Port              string
+	Username          string
+	Password          string
+	BaseTopic         string
+	UseTLS            bool
+	TLSInsecure       bool
+	EnableHADiscovery bool
+	EnableActions     bool
+	DebounceMs        string
+}
+
+type accessEditorMode uint8
+
+const (
+	accessEditorModeNone accessEditorMode = iota
+	accessEditorModeCreate
+	accessEditorModeUpdate
+	accessEditorModeDisable
+)
+
+type accessEditorState struct {
+	Mode               accessEditorMode
+	Password           string
+	ConfirmPassword    string
+	OldPassword        string
+	NewPassword        string
+	ConfirmNewPassword string
+	DisablePassword    string
+	Message            string
+	Success            bool
+}
 
 type mediaFileRow struct {
 	Filename  string
@@ -799,53 +856,317 @@ func (a *App) savePreferences() {
 	_ = savePreferences(a.prefs)
 }
 
-func (a *App) syncSettingsInput() {
-	if !a.settingsOpen || a.settingsSection != sectionMouse || !a.jigglerEditorOpen {
+func (a *App) syncMQTTEditorLocked(settings session.MQTTSettings) {
+	if a.mqttEditorDirty {
 		return
 	}
+	port := settings.Port
+	if port == 0 {
+		port = 1883
+	}
+	baseTopic := settings.BaseTopic
+	if baseTopic == "" {
+		baseTopic = "jetkvm"
+	}
+	a.mqttEditor = mqttEditorState{
+		Enabled:           settings.Enabled,
+		Broker:            settings.Broker,
+		Port:              strconv.Itoa(port),
+		Username:          settings.Username,
+		Password:          settings.Password,
+		BaseTopic:         baseTopic,
+		UseTLS:            settings.UseTLS,
+		TLSInsecure:       settings.TLSInsecure,
+		EnableHADiscovery: settings.EnableHADiscovery,
+		EnableActions:     settings.EnableActions,
+		DebounceMs:        strconv.Itoa(maxInt(settings.DebounceMs, 0)),
+	}
+	a.mqttEditorLoaded = true
+}
+
+func (a *App) currentSettingsTextValue() *string {
 	switch a.settingsInputFocus {
-	case settingsInputJigglerCron, settingsInputJigglerTimezone:
+	case settingsInputJigglerCron:
+		return &a.jigglerEditorConfig.ScheduleCronTab
+	case settingsInputJigglerTimezone:
+		return &a.jigglerEditorConfig.Timezone
+	case settingsInputAccessPassword:
+		return &a.accessEditor.Password
+	case settingsInputAccessConfirmPassword:
+		return &a.accessEditor.ConfirmPassword
+	case settingsInputAccessOldPassword:
+		return &a.accessEditor.OldPassword
+	case settingsInputAccessNewPassword:
+		return &a.accessEditor.NewPassword
+	case settingsInputAccessConfirmNewPassword:
+		return &a.accessEditor.ConfirmNewPassword
+	case settingsInputAccessDisablePassword:
+		return &a.accessEditor.DisablePassword
+	case settingsInputMQTTBroker:
+		return &a.mqttEditor.Broker
+	case settingsInputMQTTPort:
+		return &a.mqttEditor.Port
+	case settingsInputMQTTUsername:
+		return &a.mqttEditor.Username
+	case settingsInputMQTTPassword:
+		return &a.mqttEditor.Password
+	case settingsInputMQTTBaseTopic:
+		return &a.mqttEditor.BaseTopic
+	case settingsInputMQTTDebounce:
+		return &a.mqttEditor.DebounceMs
 	default:
+		return nil
+	}
+}
+
+func (a *App) mqttSettingsFromEditor() (session.MQTTSettings, error) {
+	broker := strings.TrimSpace(a.mqttEditor.Broker)
+	port, err := strconv.Atoi(strings.TrimSpace(a.mqttEditor.Port))
+	if err != nil || port < 1 || port > 65535 {
+		return session.MQTTSettings{}, errors.New("port must be between 1 and 65535")
+	}
+	debounce, err := strconv.Atoi(strings.TrimSpace(a.mqttEditor.DebounceMs))
+	if err != nil || debounce < 0 {
+		return session.MQTTSettings{}, errors.New("debounce must be zero or greater")
+	}
+	baseTopic := strings.TrimSpace(a.mqttEditor.BaseTopic)
+	if baseTopic == "" {
+		baseTopic = "jetkvm"
+	}
+	if a.mqttEditor.Enabled && broker == "" {
+		return session.MQTTSettings{}, errors.New("broker address is required when MQTT is enabled")
+	}
+	return session.MQTTSettings{
+		Enabled:           a.mqttEditor.Enabled,
+		Broker:            broker,
+		Port:              port,
+		Username:          strings.TrimSpace(a.mqttEditor.Username),
+		Password:          a.mqttEditor.Password,
+		BaseTopic:         baseTopic,
+		UseTLS:            a.mqttEditor.UseTLS,
+		TLSInsecure:       a.mqttEditor.TLSInsecure,
+		EnableHADiscovery: a.mqttEditor.EnableHADiscovery,
+		EnableActions:     a.mqttEditor.EnableActions,
+		DebounceMs:        debounce,
+	}, nil
+}
+
+const (
+	minLocalPasswordLength = 8
+	maxLocalPasswordLength = 72
+)
+
+func validateLocalPassword(value string) error {
+	switch {
+	case value == "":
+		return errors.New("password is required")
+	case len(value) < minLocalPasswordLength:
+		return fmt.Errorf("password must be at least %d characters", minLocalPasswordLength)
+	case len(value) > maxLocalPasswordLength:
+		return fmt.Errorf("password must be at most %d characters", maxLocalPasswordLength)
+	default:
+		return nil
+	}
+}
+
+func (a *App) clearAccessEditor(message string, success bool) {
+	a.accessEditor = accessEditorState{
+		Mode:    accessEditorModeNone,
+		Message: message,
+		Success: success,
+	}
+	if a.settingsInputFocus >= settingsInputAccessPassword && a.settingsInputFocus <= settingsInputAccessDisablePassword {
+		a.settingsInputFocus = settingsInputNone
+	}
+}
+
+func (a *App) setAccessEditorMode(mode accessEditorMode) {
+	a.accessEditor = accessEditorState{Mode: mode}
+	switch mode {
+	case accessEditorModeCreate:
+		a.settingsInputFocus = settingsInputAccessPassword
+	case accessEditorModeUpdate:
+		a.settingsInputFocus = settingsInputAccessOldPassword
+	case accessEditorModeDisable:
+		a.settingsInputFocus = settingsInputAccessDisablePassword
+	default:
+		a.settingsInputFocus = settingsInputNone
+	}
+}
+
+func (a *App) invokeLocalAuthSubmit() {
+	if a.settingsActionPending(settingsGroupLocalAuth) {
+		return
+	}
+	switch a.accessEditor.Mode {
+	case accessEditorModeCreate:
+		password := a.accessEditor.Password
+		if err := validateLocalPassword(password); err != nil {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "create")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, err)
+			return
+		}
+		if password != a.accessEditor.ConfirmPassword {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "create")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, errors.New("passwords do not match"))
+			return
+		}
+		a.withSettingsAction(settingsGroupLocalAuth, "create", func() error {
+			if err := a.ctrl.CreateLocalPassword(password); err != nil {
+				return err
+			}
+			a.cfg.Password = password
+			a.ctrl.SetPassword(password)
+			a.clearAccessEditor("Password protection enabled", true)
+			return a.refreshSettingsSectionSync(sectionAccess)
+		})
+	case accessEditorModeUpdate:
+		if strings.TrimSpace(a.accessEditor.OldPassword) == "" {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "update")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, errors.New("current password is required"))
+			return
+		}
+		newPassword := a.accessEditor.NewPassword
+		if err := validateLocalPassword(newPassword); err != nil {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "update")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, err)
+			return
+		}
+		if newPassword != a.accessEditor.ConfirmNewPassword {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "update")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, errors.New("new passwords do not match"))
+			return
+		}
+		oldPassword := a.accessEditor.OldPassword
+		a.withSettingsAction(settingsGroupLocalAuth, "update", func() error {
+			if err := a.ctrl.UpdateLocalPassword(oldPassword, newPassword); err != nil {
+				return err
+			}
+			a.cfg.Password = newPassword
+			a.ctrl.SetPassword(newPassword)
+			a.clearAccessEditor("Password updated", true)
+			return a.refreshSettingsSectionSync(sectionAccess)
+		})
+	case accessEditorModeDisable:
+		password := a.accessEditor.DisablePassword
+		if strings.TrimSpace(password) == "" {
+			seq := a.beginSettingsAction(settingsGroupLocalAuth, "disable")
+			a.finishSettingsAction(settingsGroupLocalAuth, seq, errors.New("current password is required"))
+			return
+		}
+		a.withSettingsAction(settingsGroupLocalAuth, "disable", func() error {
+			if err := a.ctrl.DeleteLocalPassword(password); err != nil {
+				return err
+			}
+			a.cfg.Password = ""
+			a.ctrl.SetPassword("")
+			a.clearAccessEditor("Password protection disabled", true)
+			return a.refreshSettingsSectionSync(sectionAccess)
+		})
+	}
+}
+
+func (a *App) syncSettingsInput() {
+	if !a.settingsOpen {
+		return
+	}
+	activeField := a.currentSettingsTextValue()
+	if activeField == nil {
 		return
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
-		switch a.settingsInputFocus {
-		case settingsInputJigglerCron:
-			runes := []rune(a.jigglerEditorConfig.ScheduleCronTab)
-			if len(runes) > 0 {
-				a.jigglerEditorConfig.ScheduleCronTab = string(runes[:len(runes)-1])
-			}
-		case settingsInputJigglerTimezone:
-			runes := []rune(a.jigglerEditorConfig.Timezone)
-			if len(runes) > 0 {
-				a.jigglerEditorConfig.Timezone = string(runes[:len(runes)-1])
-			}
+		runes := []rune(*activeField)
+		if len(runes) > 0 {
+			*activeField = string(runes[:len(runes)-1])
 		}
-		a.jigglerEditorError = ""
+		if a.settingsSection == sectionMouse {
+			a.jigglerEditorError = ""
+		}
+		if a.settingsSection == sectionAccess {
+			a.accessEditor.Message = ""
+			a.accessEditor.Success = false
+		}
+		if a.settingsSection == sectionMQTT {
+			a.mqttEditorDirty = true
+			a.mqttTestMessage = ""
+		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
-		if a.settingsInputFocus == settingsInputJigglerCron {
-			a.settingsInputFocus = settingsInputJigglerTimezone
-		} else {
-			a.settingsInputFocus = settingsInputJigglerCron
+		switch a.settingsSection {
+		case sectionMouse:
+			if !a.jigglerEditorOpen {
+				return
+			}
+			if a.settingsInputFocus == settingsInputJigglerCron {
+				a.settingsInputFocus = settingsInputJigglerTimezone
+			} else {
+				a.settingsInputFocus = settingsInputJigglerCron
+			}
+		case sectionMQTT:
+			switch a.settingsInputFocus {
+			case settingsInputMQTTBroker:
+				a.settingsInputFocus = settingsInputMQTTPort
+			case settingsInputMQTTPort:
+				a.settingsInputFocus = settingsInputMQTTUsername
+			case settingsInputMQTTUsername:
+				a.settingsInputFocus = settingsInputMQTTPassword
+			case settingsInputMQTTPassword:
+				a.settingsInputFocus = settingsInputMQTTBaseTopic
+			case settingsInputMQTTBaseTopic:
+				a.settingsInputFocus = settingsInputMQTTDebounce
+			default:
+				a.settingsInputFocus = settingsInputMQTTBroker
+			}
+		case sectionAccess:
+			switch a.accessEditor.Mode {
+			case accessEditorModeCreate:
+				if a.settingsInputFocus == settingsInputAccessPassword {
+					a.settingsInputFocus = settingsInputAccessConfirmPassword
+				} else {
+					a.settingsInputFocus = settingsInputAccessPassword
+				}
+			case accessEditorModeUpdate:
+				switch a.settingsInputFocus {
+				case settingsInputAccessOldPassword:
+					a.settingsInputFocus = settingsInputAccessNewPassword
+				case settingsInputAccessNewPassword:
+					a.settingsInputFocus = settingsInputAccessConfirmNewPassword
+				default:
+					a.settingsInputFocus = settingsInputAccessOldPassword
+				}
+			case accessEditorModeDisable:
+				a.settingsInputFocus = settingsInputAccessDisablePassword
+			}
 		}
 		return
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		a.invokeAction("jiggler_custom_save")
+		switch a.settingsSection {
+		case sectionMouse:
+			a.invokeAction("jiggler_custom_save")
+		case sectionAccess:
+			a.invokeAction("access_submit")
+		case sectionMQTT:
+			a.invokeAction("mqtt_save_settings")
+		}
 		return
 	}
 	for _, r := range ebiten.AppendInputChars(nil) {
 		if r < 32 || r == 127 {
 			continue
 		}
-		switch a.settingsInputFocus {
-		case settingsInputJigglerCron:
-			a.jigglerEditorConfig.ScheduleCronTab += string(r)
-		case settingsInputJigglerTimezone:
-			a.jigglerEditorConfig.Timezone += string(r)
+		*activeField += string(r)
+		if a.settingsSection == sectionMouse {
+			a.jigglerEditorError = ""
 		}
-		a.jigglerEditorError = ""
+		if a.settingsSection == sectionAccess {
+			a.accessEditor.Message = ""
+			a.accessEditor.Success = false
+		}
+		if a.settingsSection == sectionMQTT {
+			a.mqttEditorDirty = true
+			a.mqttTestMessage = ""
+		}
 	}
 }
 
@@ -1013,7 +1334,7 @@ func (a *App) invokeAction(id string) {
 		}
 	}
 	switch id {
-	case "mouse_hide_cursor":
+	case "mouse_hide_cursor_toggle":
 		a.hideCursor = !a.hideCursor
 		a.applyCursorMode()
 		a.savePreferences()
@@ -1038,11 +1359,14 @@ func (a *App) invokeAction(id string) {
 	case "toggle_pressed_keys":
 		a.showPressedKeys = !a.showPressedKeys
 		a.savePreferences()
-	case "pin_chrome_on":
-		a.prefs.PinChrome = true
+	case "pin_chrome_toggle":
+		a.prefs.PinChrome = !a.prefs.PinChrome
 		a.savePreferences()
-	case "pin_chrome_off":
-		a.prefs.PinChrome = false
+	case "hide_header_bar_toggle":
+		a.prefs.HideHeaderBar = !a.prefs.HideHeaderBar
+		a.savePreferences()
+	case "hide_status_bar_toggle":
+		a.prefs.HideStatusBar = !a.prefs.HideStatusBar
 		a.savePreferences()
 	case "chrome_anchor:top_left":
 		a.prefs.ChromeAnchor = chromeAnchorTopLeft
@@ -1096,6 +1420,28 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionAccess)
 		})
+	case "access_enable_password":
+		a.setAccessEditorMode(accessEditorModeCreate)
+	case "access_change_password":
+		a.setAccessEditorMode(accessEditorModeUpdate)
+	case "access_disable_password":
+		a.setAccessEditorMode(accessEditorModeDisable)
+	case "access_cancel_editor":
+		a.clearAccessEditor("", false)
+	case "access_focus_password":
+		a.settingsInputFocus = settingsInputAccessPassword
+	case "access_focus_confirm_password":
+		a.settingsInputFocus = settingsInputAccessConfirmPassword
+	case "access_focus_old_password":
+		a.settingsInputFocus = settingsInputAccessOldPassword
+	case "access_focus_new_password":
+		a.settingsInputFocus = settingsInputAccessNewPassword
+	case "access_focus_confirm_new_password":
+		a.settingsInputFocus = settingsInputAccessConfirmNewPassword
+	case "access_focus_disable_password":
+		a.settingsInputFocus = settingsInputAccessDisablePassword
+	case "access_submit":
+		a.invokeLocalAuthSubmit()
 	case "rotate_normal":
 		if a.settingsActionPending(settingsGroupDisplayRotate) {
 			return
@@ -1116,22 +1462,23 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
 		})
-	case "usb_emulation_on":
+	case "usb_emulation_toggle":
 		if a.settingsActionPending(settingsGroupUSBEmulation) {
 			return
 		}
-		a.withSettingsAction(settingsGroupUSBEmulation, "on", func() error {
-			if err := a.ctrl.SetUSBEmulation(true); err != nil {
-				return err
-			}
-			return a.refreshSettingsSectionSync(sectionHardware)
-		})
-	case "usb_emulation_off":
-		if a.settingsActionPending(settingsGroupUSBEmulation) {
+		a.mu.RLock()
+		usbEnabled := a.sectionData.Hardware.State.USBEmulation
+		a.mu.RUnlock()
+		if usbEnabled == nil {
 			return
 		}
-		a.withSettingsAction(settingsGroupUSBEmulation, "off", func() error {
-			if err := a.ctrl.SetUSBEmulation(false); err != nil {
+		next := !*usbEnabled
+		choice := "off"
+		if next {
+			choice = "on"
+		}
+		a.withSettingsAction(settingsGroupUSBEmulation, choice, func() error {
+			if err := a.ctrl.SetUSBEmulation(next); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
@@ -1177,22 +1524,23 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionGeneral)
 		})
-	case "developer_mode_on":
+	case "developer_mode_toggle":
 		if a.settingsActionPending(settingsGroupDeveloperMode) {
 			return
 		}
-		a.withSettingsAction(settingsGroupDeveloperMode, "on", func() error {
-			if err := a.ctrl.SetDeveloperModeState(true); err != nil {
-				return err
-			}
-			return a.refreshSettingsSectionSync(sectionAdvanced)
-		})
-	case "developer_mode_off":
-		if a.settingsActionPending(settingsGroupDeveloperMode) {
+		a.mu.RLock()
+		devMode := a.sectionData.Advanced.State.DevMode
+		a.mu.RUnlock()
+		if devMode == nil {
 			return
 		}
-		a.withSettingsAction(settingsGroupDeveloperMode, "off", func() error {
-			if err := a.ctrl.SetDeveloperModeState(false); err != nil {
+		next := !*devMode
+		choice := "off"
+		if next {
+			choice = "on"
+		}
+		a.withSettingsAction(settingsGroupDeveloperMode, choice, func() error {
+			if err := a.ctrl.SetDeveloperModeState(next); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionAdvanced)
@@ -1255,6 +1603,78 @@ func (a *App) invokeAction(id string) {
 		a.toggleUSBDevice("serial_console")
 	case "usb_toggle_network":
 		a.toggleUSBDevice("network")
+	case "mqtt_focus_broker":
+		a.settingsInputFocus = settingsInputMQTTBroker
+	case "mqtt_focus_port":
+		a.settingsInputFocus = settingsInputMQTTPort
+	case "mqtt_focus_username":
+		a.settingsInputFocus = settingsInputMQTTUsername
+	case "mqtt_focus_password":
+		a.settingsInputFocus = settingsInputMQTTPassword
+	case "mqtt_focus_base_topic":
+		a.settingsInputFocus = settingsInputMQTTBaseTopic
+	case "mqtt_focus_debounce":
+		a.settingsInputFocus = settingsInputMQTTDebounce
+	case "mqtt_enabled_toggle":
+		a.mqttEditor.Enabled = !a.mqttEditor.Enabled
+		a.mqttEditorDirty = true
+		a.mqttTestMessage = ""
+	case "mqtt_use_tls_toggle":
+		a.mqttEditor.UseTLS = !a.mqttEditor.UseTLS
+		a.mqttEditorDirty = true
+		a.mqttTestMessage = ""
+	case "mqtt_tls_insecure_toggle":
+		a.mqttEditor.TLSInsecure = !a.mqttEditor.TLSInsecure
+		a.mqttEditorDirty = true
+		a.mqttTestMessage = ""
+	case "mqtt_ha_discovery_toggle":
+		a.mqttEditor.EnableHADiscovery = !a.mqttEditor.EnableHADiscovery
+		a.mqttEditorDirty = true
+		a.mqttTestMessage = ""
+	case "mqtt_actions_toggle":
+		a.mqttEditor.EnableActions = !a.mqttEditor.EnableActions
+		a.mqttEditorDirty = true
+		a.mqttTestMessage = ""
+	case "mqtt_save_settings":
+		if a.settingsActionPending(settingsGroupMQTTSave) || a.settingsActionPending(settingsGroupMQTTTest) {
+			return
+		}
+		settings, err := a.mqttSettingsFromEditor()
+		if err != nil {
+			a.finishSettingsAction(settingsGroupMQTTSave, a.beginSettingsAction(settingsGroupMQTTSave, "save"), err)
+			return
+		}
+		a.mqttTestMessage = ""
+		a.withSettingsAction(settingsGroupMQTTSave, "save", func() error {
+			if err := a.ctrl.SetMQTTSettings(settings); err != nil {
+				return err
+			}
+			a.mqttEditorDirty = false
+			return a.refreshSettingsSectionSync(sectionMQTT)
+		})
+	case "mqtt_test_connection":
+		if a.settingsActionPending(settingsGroupMQTTSave) || a.settingsActionPending(settingsGroupMQTTTest) {
+			return
+		}
+		settings, err := a.mqttSettingsFromEditor()
+		if err != nil {
+			a.finishSettingsAction(settingsGroupMQTTTest, a.beginSettingsAction(settingsGroupMQTTTest, "test"), err)
+			return
+		}
+		a.mqttTestMessage = ""
+		a.withSettingsAction(settingsGroupMQTTTest, "test", func() error {
+			result, err := a.ctrl.TestMQTTConnection(settings)
+			if err != nil {
+				return err
+			}
+			a.mqttTestSuccess = result.Success
+			if result.Success {
+				a.mqttTestMessage = "Connection test succeeded"
+			} else {
+				a.mqttTestMessage = fallbackLabel(result.Error, "Connection test failed")
+			}
+			return nil
+		})
 	case "layout:en-US":
 		a.invokeKeyboardLayoutAction("en-US")
 	default:
@@ -1274,6 +1694,21 @@ func (a *App) invokeAction(id string) {
 			a.settingsSection = section
 			if section != sectionMouse {
 				a.closeJigglerEditor()
+			}
+			if section != sectionAccess {
+				switch a.settingsInputFocus {
+				case settingsInputAccessPassword, settingsInputAccessConfirmPassword, settingsInputAccessOldPassword, settingsInputAccessNewPassword, settingsInputAccessConfirmNewPassword, settingsInputAccessDisablePassword:
+					a.settingsInputFocus = settingsInputNone
+				}
+				if a.accessEditor.Mode != accessEditorModeNone {
+					a.clearAccessEditor("", false)
+				}
+			}
+			if section != sectionMQTT {
+				switch a.settingsInputFocus {
+				case settingsInputMQTTBroker, settingsInputMQTTPort, settingsInputMQTTUsername, settingsInputMQTTPassword, settingsInputMQTTBaseTopic, settingsInputMQTTDebounce:
+					a.settingsInputFocus = settingsInputNone
+				}
 			}
 			a.refreshSettingsSection(a.settingsSection)
 		}
@@ -1575,7 +2010,9 @@ func (a *App) closeSettingsOverlay() {
 		return
 	}
 	a.settingsOpen = false
+	a.settingsInputFocus = settingsInputNone
 	a.closeJigglerEditor()
+	a.clearAccessEditor("", false)
 	a.armOverlayDismissSuppression()
 	a.applyCursorMode()
 }

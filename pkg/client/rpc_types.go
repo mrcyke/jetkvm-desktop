@@ -12,6 +12,30 @@ type UpdateStatus struct {
 	SystemUpdateAvailable bool `json:"systemUpdateAvailable"`
 }
 
+type MQTTSettings struct {
+	Enabled           bool   `json:"enabled"`
+	Broker            string `json:"broker"`
+	Port              int    `json:"port"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	BaseTopic         string `json:"base_topic"`
+	UseTLS            bool   `json:"use_tls"`
+	TLSInsecure       bool   `json:"tls_insecure"`
+	EnableHADiscovery bool   `json:"enable_ha_discovery"`
+	EnableActions     bool   `json:"enable_actions"`
+	DebounceMs        int    `json:"debounce_ms"`
+}
+
+type MQTTStatus struct {
+	Connected bool   `json:"connected"`
+	Error     string `json:"error,omitempty"`
+}
+
+type MQTTTestResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
 type NetworkSettings struct {
 	Hostname string `json:"hostname"`
 	IP       string `json:"ip"`
@@ -86,6 +110,10 @@ type storageUploadRequest struct {
 
 type networkSettingsRequest struct {
 	Settings NetworkSettings `json:"settings"`
+}
+
+type mqttSettingsRequest struct {
+	Settings MQTTSettings `json:"settings"`
 }
 
 type setTLSStateRequest struct {

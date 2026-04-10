@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -71,6 +72,7 @@ type sectionData struct {
 	Access   accessState
 	Hardware hardwareState
 	Network  networkState
+	MQTT     mqttState
 	Advanced advancedState
 }
 
@@ -103,6 +105,13 @@ type networkState struct {
 	Loading bool
 	Error   string
 	State   session.NetworkState
+}
+
+type mqttState struct {
+	Loading  bool
+	Error    string
+	Settings session.MQTTSettings
+	Status   session.MQTTStatus
 }
 
 type advancedState struct {
@@ -246,11 +255,11 @@ func settingsSections(snap session.Snapshot) []settingsSectionDef {
 			id:          sectionMQTT,
 			label:       "MQTT",
 			description: "Broker, topics, TLS, HA discovery, actions",
-			available:   false,
+			available:   true,
 			items: []string{
 				"Broker connection and TLS options",
 				"Base topic and Home Assistant discovery",
-				"Connection test before save",
+				"Connection test and save",
 			},
 		},
 		{
@@ -400,6 +409,9 @@ func (a *App) drawTopBar(screen *ebiten.Image, snap session.Snapshot) {
 	if alpha <= 0 {
 		return
 	}
+	if a.prefs.HideHeaderBar {
+		return
+	}
 	buttons := a.layoutChromeButtons(screen.Bounds().Dx(), screen.Bounds().Dy(), snap)
 	a.chromeButtons = buttons
 	a.drawUIRoot(screen, func(chromeButton) {}, chromeButtonsElement{
@@ -411,6 +423,9 @@ func (a *App) drawTopBar(screen *ebiten.Image, snap session.Snapshot) {
 func (a *App) drawHint(screen *ebiten.Image) {
 	alpha := a.uiAlpha()
 	if alpha <= 0 {
+		return
+	}
+	if a.prefs.HideHeaderBar {
 		return
 	}
 	x, y := ebiten.CursorPosition()
@@ -438,6 +453,9 @@ func (a *App) drawHint(screen *ebiten.Image) {
 func (a *App) drawStatusFooter(screen *ebiten.Image, snap session.Snapshot) {
 	alpha := a.uiAlpha()
 	if alpha <= 0 && snap.Phase == session.PhaseConnected && snap.LastError == "" {
+		return
+	}
+	if a.prefs.HideStatusBar {
 		return
 	}
 	left := fmt.Sprintf("RTC %s  HID %s  Video %s", rtcLabel(snap.RTCState), readyWord(snap.HIDReady), readyWord(snap.VideoReady))
@@ -844,6 +862,9 @@ func (a *App) markSettingsSectionLoading(section settingsSection) uint64 {
 	case sectionNetwork:
 		a.sectionData.Network.Loading = true
 		a.sectionData.Network.Error = ""
+	case sectionMQTT:
+		a.sectionData.MQTT.Loading = true
+		a.sectionData.MQTT.Error = ""
 	case sectionAdvanced:
 		a.sectionData.Advanced.Loading = true
 		a.sectionData.Advanced.Error = ""
@@ -890,13 +911,17 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Unlock()
 	case sectionAccess:
 		state := accessState{Loading: false}
+		if authMode, loopbackOnly, callErr := a.ctrl.GetLocalAccessState(ctx); callErr == nil {
+			state.State.LocalAuthMode = authMode
+			state.State.LoopbackOnly = loopbackOnly
+		}
 		if cloud, callErr := a.ctrl.GetCloudState(ctx); callErr == nil {
 			state.State.Cloud = cloud
 		}
 		if tlsMode, callErr := a.ctrl.GetTLSState(ctx); callErr == nil {
 			state.State.TLS = tlsMode
 		}
-		if state.State.Cloud.URL == "" && state.State.TLS == session.TLSModeUnknown {
+		if state.State.LocalAuthMode == session.LocalAuthModeUnknown && state.State.Cloud.URL == "" && state.State.TLS == session.TLSModeUnknown {
 			state.Error = "No access RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -953,6 +978,20 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Lock()
 		if a.sectionLoadSeq[section] == seq {
 			a.sectionData.Network = state
+		}
+		a.mu.Unlock()
+	case sectionMQTT:
+		state := mqttState{Loading: false}
+		if settings, callErr := a.ctrl.GetMQTTSettings(ctx); callErr == nil {
+			state.Settings = settings
+		}
+		if status, callErr := a.ctrl.GetMQTTStatus(ctx); callErr == nil {
+			state.Status = status
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.MQTT = state
+			a.syncMQTTEditorLocked(state.Settings)
 		}
 		a.mu.Unlock()
 	case sectionAdvanced:
@@ -1039,6 +1078,17 @@ func settingsToggleElement(id string, visual settingsActionVisual) ui.Element {
 	}
 }
 
+func settingsToggleRowElement(id, label string, visual settingsActionVisual) ui.Element {
+	return ui.Row{
+		AlignY: ui.AlignCenter,
+		Children: []ui.Child{
+			ui.Fixed(settingsToggleElement(id, visual)),
+			ui.Fixed(ui.Spacer{W: 12}),
+			ui.Flex(ui.Label{Text: label, Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}, 1),
+		},
+	}
+}
+
 func settingsStatusElement(text string, clr color.Color) ui.Element {
 	if text == "" {
 		return nil
@@ -1078,7 +1128,7 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Local cursor")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsActionElement("mouse_hide_cursor", "Hide Host Cursor", settingsActionVisual{Enabled: true, Active: a.hideCursor}, 154)),
+		ui.Fixed(settingsToggleRowElement("mouse_hide_cursor_toggle", "Hide Host Cursor", settingsActionVisual{Enabled: true, Active: a.hideCursor})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Wheel")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1095,11 +1145,12 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 				settingsActionElement("scroll_25", "Medium", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond}, 84),
 				settingsActionElement("scroll_50", "High", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond}, 72),
 				settingsActionElement("scroll_100", "Very High", settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond}, 108),
-				settingsActionElement("scroll_invert", "Invert Scroll", settingsActionVisual{Enabled: true, Active: a.invertScroll}, 128),
 			},
 			Spacing:     12,
 			LineSpacing: 8,
 		}),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsToggleRowElement("scroll_invert", "Invert Scroll", settingsActionVisual{Enabled: true, Active: a.invertScroll})),
 	}
 
 	rightChildren := []ui.Child{}
@@ -1245,6 +1296,8 @@ func (a *App) settingsSectionBody(section settingsSection, snap session.Snapshot
 		return a.settingsAppearanceBody()
 	case sectionNetwork:
 		return a.settingsNetworkBody()
+	case sectionMQTT:
+		return a.settingsMQTTBody()
 	case sectionAdvanced:
 		return a.settingsAdvancedBody()
 	default:
@@ -1337,8 +1390,9 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Row{Children: []ui.Child{
 			ui.Fixed(settingsKeyValueElement("Active layout", keyboardLayoutLabel(layout), 118)),
 			ui.Flex(ui.Spacer{}, 1),
-			ui.Fixed(settingsActionElement("toggle_pressed_keys", "Show Pressed Keys", settingsActionVisual{Enabled: true, Active: a.showPressedKeys}, 158)),
 		}, Spacing: 12}),
+		ui.Fixed(ui.Spacer{H: 18}),
+		ui.Fixed(settingsToggleRowElement("toggle_pressed_keys", "Show Pressed Keys", settingsActionVisual{Enabled: true, Active: a.showPressedKeys})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Layout presets")),
 		ui.Fixed(ui.Spacer{H: 10}),
@@ -1432,10 +1486,11 @@ func (a *App) settingsHardwareBody() ui.Element {
 	if state.State.USBEmulation != nil {
 		usbChildren = append(usbChildren,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(ui.Wrap{Children: []ui.Element{
-				settingsActionElement("usb_emulation_on", "USB On", settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "on", Active: *state.State.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "on"}, 86),
-				settingsActionElement("usb_emulation_off", "USB Off", settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "off", Active: !*state.State.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "off"}, 92),
-			}, Spacing: 12, LineSpacing: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_emulation_toggle", "Enable USB Emulation", settingsActionVisual{
+				Enabled: !usbState.Pending,
+				Active:  *state.State.USBEmulation,
+				Pending: usbState.Pending,
+			})),
 		)
 		switch {
 		case usbState.Pending:
@@ -1455,14 +1510,19 @@ func (a *App) settingsHardwareBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(settingsSectionLabelElement("Custom")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("usb_toggle_keyboard", "Keyboard", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.Keyboard, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 94),
-			settingsActionElement("usb_toggle_absolute_mouse", "Abs Mouse", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.AbsoluteMouse, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 98),
-			settingsActionElement("usb_toggle_relative_mouse", "Rel Mouse", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.RelativeMouse, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 96),
-			settingsActionElement("usb_toggle_mass_storage", "Mass Storage", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.MassStorage, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 110),
-			settingsActionElement("usb_toggle_serial_console", "Serial", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.SerialConsole, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 74),
-			settingsActionElement("usb_toggle_network", "Network", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.Network, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"}, 88),
-		}, Spacing: 12, LineSpacing: 8}),
+		ui.Fixed(ui.Column{Children: []ui.Child{
+			ui.Fixed(settingsToggleRowElement("usb_toggle_keyboard", "Keyboard", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.Keyboard, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_toggle_absolute_mouse", "Absolute Mouse", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.AbsoluteMouse, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_toggle_relative_mouse", "Relative Mouse", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.RelativeMouse, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_toggle_mass_storage", "Mass Storage", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.MassStorage, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_toggle_serial_console", "Serial Console", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.SerialConsole, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(settingsToggleRowElement("usb_toggle_network", "Network", settingsActionVisual{Enabled: !usbDevicesState.Pending || usbDevicesState.PendingChoice == "custom", Active: state.State.USBDevices.Network, Pending: usbDevicesState.Pending && usbDevicesState.PendingChoice == "custom"})),
+		}}),
 	)
 	switch {
 	case usbDevicesState.Pending:
@@ -1480,25 +1540,65 @@ func (a *App) settingsAccessBody() ui.Element {
 	a.mu.RLock()
 	state := a.sectionData.Access
 	a.mu.RUnlock()
+	localAuthState := a.settingsAction(settingsGroupLocalAuth)
 	if state.Loading {
 		return settingsTwoPane(
-			settingsCardElement("Cloud", ui.Label{Text: "Loading access state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+			settingsCardElement("Local Access", ui.Label{Text: "Loading access state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
 			50,
-			settingsCardElement("TLS", ui.Spacer{}),
+			settingsCardElement("Remote Access", ui.Spacer{}),
 			50,
 		)
 	}
-	cloudChildren := []ui.Child{
-		ui.Fixed(settingsKeyValueElement("Connected", boolWord(state.State.Cloud.Connected), 96)),
+
+	localChildren := []ui.Child{
+		ui.Fixed(settingsKeyValueElement("Authentication", localAuthModeLabel(state.State.LocalAuthMode), 112)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Loopback Only", boolWord(state.State.LoopbackOnly), 112)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsSectionLabelElement("Cloud API")),
-		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.URL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
-		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsSectionLabelElement("Cloud App")),
-		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
 	}
+	switch state.State.LocalAuthMode {
+	case session.LocalAuthModePassword:
+		localChildren = append(localChildren,
+			ui.Fixed(ui.Wrap{Children: []ui.Element{
+				settingsActionElement("access_change_password", "Change Password", settingsActionVisual{Enabled: !localAuthState.Pending}, 136),
+				settingsActionElement("access_disable_password", "Disable Password", settingsActionVisual{Enabled: !localAuthState.Pending}, 138),
+			}, Spacing: 12, LineSpacing: 8}),
+		)
+	case session.LocalAuthModeNoPassword:
+		localChildren = append(localChildren,
+			ui.Fixed(settingsActionElement("access_enable_password", "Enable Password", settingsActionVisual{Enabled: !localAuthState.Pending}, 134)),
+		)
+	}
+	switch {
+	case localAuthState.Pending:
+		localChildren = append(localChildren,
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})),
+		)
+	case localAuthState.Error != "":
+		localChildren = append(localChildren,
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(settingsStatusElement(localAuthState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+		)
+	}
+	if a.accessEditor.Message != "" {
+		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		if a.accessEditor.Success {
+			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
+		}
+		localChildren = append(localChildren,
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(settingsStatusElement(a.accessEditor.Message, msgColor)),
+		)
+	}
+
+	leftChildren := []ui.Child{
+		ui.Fixed(settingsCardElement("Local Access", ui.Column{Children: localChildren})),
+	}
+	if editorCard := a.settingsAccessEditorCard(localAuthState.Pending); editorCard != nil {
+		leftChildren = append(leftChildren, ui.Fixed(ui.Spacer{H: 14}), ui.Fixed(editorCard))
+	}
+
 	tlsState := a.settingsAction(settingsGroupTLSMode)
 	tlsChildren := []ui.Child{
 		ui.Fixed(settingsKeyValueElement("Mode", string(state.State.TLS), 70)),
@@ -1519,7 +1619,106 @@ func (a *App) settingsAccessBody() ui.Element {
 	if state.Error != "" {
 		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
 	}
-	return settingsTwoPane(settingsCardElement("Cloud", ui.Column{Children: cloudChildren}), 50, settingsCardElement("TLS", ui.Column{Children: tlsChildren}), 50)
+
+	cloudChildren := []ui.Child{
+		ui.Fixed(settingsKeyValueElement("Connected", boolWord(state.State.Cloud.Connected), 96)),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsSectionLabelElement("Cloud API")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.URL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsSectionLabelElement("Cloud App")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+	}
+
+	rightChildren := []ui.Child{
+		ui.Fixed(settingsCardElement("TLS", ui.Column{Children: tlsChildren})),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsCardElement("Cloud", ui.Column{Children: cloudChildren})),
+	}
+
+	return settingsTwoPane(
+		ui.Column{Children: leftChildren},
+		50,
+		ui.Column{Children: rightChildren},
+		50,
+	)
+}
+
+func localAuthModeLabel(mode session.LocalAuthMode) string {
+	switch mode {
+	case session.LocalAuthModePassword:
+		return "Password"
+	case session.LocalAuthModeNoPassword:
+		return "No Password"
+	default:
+		return "Unavailable"
+	}
+}
+
+func obscuredText(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.Repeat("*", len([]rune(value)))
+}
+
+func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
+	switch a.accessEditor.Mode {
+	case accessEditorModeCreate:
+		children := []ui.Child{
+			ui.Fixed(settingsSectionLabelElement("New Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_password", Value: a.accessEditor.Password, DisplayValue: obscuredText(a.accessEditor.Password), Placeholder: "Minimum 8 characters", Focused: a.settingsInputFocus == settingsInputAccessPassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Confirm Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_confirm_password", Value: a.accessEditor.ConfirmPassword, DisplayValue: obscuredText(a.accessEditor.ConfirmPassword), Placeholder: "Repeat password", Focused: a.settingsInputFocus == settingsInputAccessConfirmPassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 16}),
+			ui.Fixed(ui.Wrap{Children: []ui.Element{
+				settingsActionElement("access_submit", "Save Password", settingsActionVisual{Enabled: !pending}, 124),
+				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
+			}, Spacing: 12, LineSpacing: 8}),
+		}
+		return settingsCardElement("Enable Password", ui.Column{Children: children})
+	case accessEditorModeUpdate:
+		children := []ui.Child{
+			ui.Fixed(settingsSectionLabelElement("Current Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_old_password", Value: a.accessEditor.OldPassword, DisplayValue: obscuredText(a.accessEditor.OldPassword), Placeholder: "Current password", Focused: a.settingsInputFocus == settingsInputAccessOldPassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("New Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_new_password", Value: a.accessEditor.NewPassword, DisplayValue: obscuredText(a.accessEditor.NewPassword), Placeholder: "Minimum 8 characters", Focused: a.settingsInputFocus == settingsInputAccessNewPassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Confirm New Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_confirm_new_password", Value: a.accessEditor.ConfirmNewPassword, DisplayValue: obscuredText(a.accessEditor.ConfirmNewPassword), Placeholder: "Repeat new password", Focused: a.settingsInputFocus == settingsInputAccessConfirmNewPassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 16}),
+			ui.Fixed(ui.Wrap{Children: []ui.Element{
+				settingsActionElement("access_submit", "Update Password", settingsActionVisual{Enabled: !pending}, 132),
+				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
+			}, Spacing: 12, LineSpacing: 8}),
+		}
+		return settingsCardElement("Change Password", ui.Column{Children: children})
+	case accessEditorModeDisable:
+		children := []ui.Child{
+			ui.Fixed(ui.Paragraph{Text: "Confirm the current password to disable local password protection.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Current Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "access_focus_disable_password", Value: a.accessEditor.DisablePassword, DisplayValue: obscuredText(a.accessEditor.DisablePassword), Placeholder: "Current password", Focused: a.settingsInputFocus == settingsInputAccessDisablePassword, Enabled: !pending}),
+			ui.Fixed(ui.Spacer{H: 16}),
+			ui.Fixed(ui.Wrap{Children: []ui.Element{
+				settingsActionElement("access_submit", "Disable Password", settingsActionVisual{Enabled: !pending}, 134),
+				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
+			}, Spacing: 12, LineSpacing: 8}),
+		}
+		return settingsCardElement("Disable Password", ui.Column{Children: children})
+	default:
+		return nil
+	}
 }
 
 func (a *App) settingsNetworkBody() ui.Element {
@@ -1544,6 +1743,102 @@ func (a *App) settingsNetworkBody() ui.Element {
 	return settingsCardElement("Current state", ui.Column{Children: children})
 }
 
+func (a *App) settingsMQTTBody() ui.Element {
+	a.mu.RLock()
+	state := a.sectionData.MQTT
+	a.mu.RUnlock()
+	saveState := a.settingsAction(settingsGroupMQTTSave)
+	testState := a.settingsAction(settingsGroupMQTTTest)
+
+	settingsChildren := []ui.Child{}
+	if state.Loading && !a.mqttEditorLoaded {
+		settingsChildren = append(settingsChildren, ui.Fixed(ui.Label{Text: "Loading MQTT settings…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}))
+	} else {
+		settingsChildren = append(settingsChildren,
+			ui.Fixed(settingsToggleRowElement("mqtt_enabled_toggle", "Enable MQTT", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.Enabled})),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Broker")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_broker", Value: a.mqttEditor.Broker, Placeholder: "mqtt.local", Focused: a.settingsInputFocus == settingsInputMQTTBroker, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Port")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_port", Value: a.mqttEditor.Port, Placeholder: "1883", Focused: a.settingsInputFocus == settingsInputMQTTPort, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Username")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_username", Value: a.mqttEditor.Username, Placeholder: "optional", Focused: a.settingsInputFocus == settingsInputMQTTUsername, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Password")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_password", Value: a.mqttEditor.Password, Placeholder: "optional", Focused: a.settingsInputFocus == settingsInputMQTTPassword, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Base Topic")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_base_topic", Value: a.mqttEditor.BaseTopic, Placeholder: "jetkvm", Focused: a.settingsInputFocus == settingsInputMQTTBaseTopic, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsToggleRowElement("mqtt_use_tls_toggle", "Use TLS", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.UseTLS})),
+			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsToggleRowElement("mqtt_tls_insecure_toggle", "Allow Insecure TLS", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.TLSInsecure})),
+			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsToggleRowElement("mqtt_ha_discovery_toggle", "Home Assistant Discovery", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.EnableHADiscovery})),
+			ui.Fixed(ui.Spacer{H: 10}),
+			ui.Fixed(settingsToggleRowElement("mqtt_actions_toggle", "Enable MQTT Actions", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.EnableActions})),
+			ui.Fixed(ui.Spacer{H: 14}),
+			ui.Fixed(settingsSectionLabelElement("Debounce (ms)")),
+			ui.Fixed(ui.Spacer{H: 8}),
+			ui.Fixed(ui.TextField{ID: "mqtt_focus_debounce", Value: a.mqttEditor.DebounceMs, Placeholder: "0", Focused: a.settingsInputFocus == settingsInputMQTTDebounce, Enabled: !saveState.Pending && !testState.Pending}),
+			ui.Fixed(ui.Spacer{H: 16}),
+			ui.Fixed(ui.Wrap{Children: []ui.Element{
+				settingsActionElement("mqtt_test_connection", "Test Connection", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending}, 128),
+				settingsActionElement("mqtt_save_settings", "Save Settings", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending}, 116),
+			}, Spacing: 12, LineSpacing: 8}),
+		)
+		switch {
+		case saveState.Pending:
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		case saveState.Error != "":
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(saveState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		case testState.Pending:
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Testing…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		case testState.Error != "":
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(testState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		}
+		if a.mqttTestMessage != "" {
+			testColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+			if a.mqttTestSuccess {
+				testColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
+			}
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(a.mqttTestMessage, testColor)))
+		}
+	}
+	if state.Error != "" {
+		settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+
+	statusChildren := []ui.Child{
+		ui.Fixed(settingsKeyValueElement("Connected", boolWord(state.Status.Connected), 92)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Broker", fallbackLabel(state.Settings.Broker, a.mqttEditor.Broker), 92)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Base Topic", fallbackLabel(state.Settings.BaseTopic, a.mqttEditor.BaseTopic), 92)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("TLS", boolWord(state.Settings.UseTLS), 92)),
+		ui.Fixed(ui.Spacer{H: 10}),
+		ui.Fixed(settingsKeyValueElement("Actions", boolWord(state.Settings.EnableActions), 92)),
+	}
+	if state.Status.Error != "" {
+		statusChildren = append(statusChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Status.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+	}
+
+	return settingsTwoPane(
+		settingsCardElement("Configuration", ui.Column{Children: settingsChildren}),
+		58,
+		settingsCardElement("Status", ui.Column{Children: statusChildren}),
+		42,
+	)
+}
+
 func (a *App) settingsAdvancedBody() ui.Element {
 	a.mu.RLock()
 	state := a.sectionData.Advanced
@@ -1565,10 +1860,11 @@ func (a *App) settingsAdvancedBody() ui.Element {
 			devModeState := a.settingsAction(settingsGroupDeveloperMode)
 			children = append(children,
 				ui.Fixed(ui.Spacer{H: 14}),
-				ui.Fixed(ui.Wrap{Children: []ui.Element{
-					settingsActionElement("developer_mode_on", "Developer Mode On", settingsActionVisual{Enabled: !devModeState.Pending || devModeState.PendingChoice == "on", Active: *state.State.DevMode, Pending: devModeState.Pending && devModeState.PendingChoice == "on"}, 156),
-					settingsActionElement("developer_mode_off", "Developer Mode Off", settingsActionVisual{Enabled: !devModeState.Pending || devModeState.PendingChoice == "off", Active: !*state.State.DevMode, Pending: devModeState.Pending && devModeState.PendingChoice == "off"}, 160),
-				}, Spacing: 12, LineSpacing: 8}),
+				ui.Fixed(settingsToggleRowElement("developer_mode_toggle", "Developer Mode", settingsActionVisual{
+					Enabled: !devModeState.Pending,
+					Active:  *state.State.DevMode,
+					Pending: devModeState.Pending,
+				})),
 			)
 			switch {
 			case devModeState.Pending:
@@ -1598,10 +1894,11 @@ func (a *App) settingsAppearanceBody() ui.Element {
 	return settingsCardElement("Chrome", ui.Column{Children: []ui.Child{
 		ui.Fixed(settingsSectionLabelElement("Top bar")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("pin_chrome_off", "Auto-hide", settingsActionVisual{Enabled: true, Active: !a.prefs.PinChrome}, 96),
-			settingsActionElement("pin_chrome_on", "Pinned", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome}, 84),
-		}, Spacing: 12, LineSpacing: 8}),
+		ui.Fixed(settingsToggleRowElement("pin_chrome_toggle", "Pin Top Bar", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsToggleRowElement("hide_header_bar_toggle", "Hide Header Bar", settingsActionVisual{Enabled: true, Active: a.prefs.HideHeaderBar})),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsToggleRowElement("hide_status_bar_toggle", "Hide Status Bar", settingsActionVisual{Enabled: true, Active: a.prefs.HideStatusBar})),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Position")),
 		ui.Fixed(ui.Spacer{H: 8}),

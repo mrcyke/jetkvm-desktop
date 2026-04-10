@@ -171,6 +171,12 @@ func (c *Controller) ReconnectNow() {
 	}
 }
 
+func (c *Controller) SetPassword(password string) {
+	c.mu.Lock()
+	c.cfg.Password = password
+	c.mu.Unlock()
+}
+
 func (c *Controller) Reboot() error {
 	current := c.clientIfConnected()
 	if current == nil {
@@ -350,6 +356,18 @@ func (c *Controller) GetCloudState(ctx context.Context) (CloudState, error) {
 	}, nil
 }
 
+func (c *Controller) GetLocalAccessState(ctx context.Context) (LocalAuthMode, bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return LocalAuthModeUnknown, false, errors.New("client not connected")
+	}
+	info, err := current.DeviceInfo(ctx)
+	if err != nil {
+		return LocalAuthModeUnknown, false, err
+	}
+	return sessionLocalAuthMode(info.AuthMode), info.LoopbackOnly, nil
+}
+
 func (c *Controller) GetTLSState(ctx context.Context) (TLSMode, error) {
 	current := c.clientIfConnected()
 	if current == nil {
@@ -360,6 +378,30 @@ func (c *Controller) GetTLSState(ctx context.Context) (TLSMode, error) {
 		return TLSModeUnknown, err
 	}
 	return TLSMode(state.Mode), nil
+}
+
+func (c *Controller) CreateLocalPassword(password string) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.CreateLocalPassword(withTimeout(context.Background(), c.cfg.MutationTimeout), password)
+}
+
+func (c *Controller) UpdateLocalPassword(oldPassword, newPassword string) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.UpdateLocalPassword(withTimeout(context.Background(), c.cfg.MutationTimeout), oldPassword, newPassword)
+}
+
+func (c *Controller) DeleteLocalPassword(password string) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.DeleteLocalPassword(withTimeout(context.Background(), c.cfg.MutationTimeout), password)
 }
 
 func (c *Controller) GetUSBEmulationState(ctx context.Context) (bool, error) {
@@ -474,6 +516,92 @@ func (c *Controller) GetLocalVersion(ctx context.Context) (VersionInfo, error) {
 	return VersionInfo{
 		AppVersion:    version.AppVersion,
 		SystemVersion: version.SystemVersion,
+	}, nil
+}
+
+func (c *Controller) GetMQTTSettings(ctx context.Context) (MQTTSettings, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return MQTTSettings{}, errors.New("client not connected")
+	}
+	settings, err := current.GetMQTTSettings(ctx)
+	if err != nil {
+		return MQTTSettings{}, err
+	}
+	return MQTTSettings{
+		Enabled:           settings.Enabled,
+		Broker:            settings.Broker,
+		Port:              settings.Port,
+		Username:          settings.Username,
+		Password:          settings.Password,
+		BaseTopic:         settings.BaseTopic,
+		UseTLS:            settings.UseTLS,
+		TLSInsecure:       settings.TLSInsecure,
+		EnableHADiscovery: settings.EnableHADiscovery,
+		EnableActions:     settings.EnableActions,
+		DebounceMs:        settings.DebounceMs,
+	}, nil
+}
+
+func (c *Controller) SetMQTTSettings(settings MQTTSettings) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.SetMQTTSettings(withTimeout(context.Background(), c.cfg.MutationTimeout), client.MQTTSettings{
+		Enabled:           settings.Enabled,
+		Broker:            settings.Broker,
+		Port:              settings.Port,
+		Username:          settings.Username,
+		Password:          settings.Password,
+		BaseTopic:         settings.BaseTopic,
+		UseTLS:            settings.UseTLS,
+		TLSInsecure:       settings.TLSInsecure,
+		EnableHADiscovery: settings.EnableHADiscovery,
+		EnableActions:     settings.EnableActions,
+		DebounceMs:        settings.DebounceMs,
+	})
+}
+
+func (c *Controller) GetMQTTStatus(ctx context.Context) (MQTTStatus, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return MQTTStatus{}, errors.New("client not connected")
+	}
+	status, err := current.GetMQTTStatus(ctx)
+	if err != nil {
+		return MQTTStatus{}, err
+	}
+	return MQTTStatus{
+		Connected: status.Connected,
+		Error:     status.Error,
+	}, nil
+}
+
+func (c *Controller) TestMQTTConnection(settings MQTTSettings) (MQTTTestResult, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return MQTTTestResult{}, errors.New("client not connected")
+	}
+	result, err := current.TestMQTTConnection(withTimeout(context.Background(), c.cfg.MutationTimeout), client.MQTTSettings{
+		Enabled:           settings.Enabled,
+		Broker:            settings.Broker,
+		Port:              settings.Port,
+		Username:          settings.Username,
+		Password:          settings.Password,
+		BaseTopic:         settings.BaseTopic,
+		UseTLS:            settings.UseTLS,
+		TLSInsecure:       settings.TLSInsecure,
+		EnableHADiscovery: settings.EnableHADiscovery,
+		EnableActions:     settings.EnableActions,
+		DebounceMs:        settings.DebounceMs,
+	})
+	if err != nil {
+		return MQTTTestResult{}, err
+	}
+	return MQTTTestResult{
+		Success: result.Success,
+		Error:   result.Error,
 	}, nil
 }
 
@@ -1087,6 +1215,17 @@ func withTimeout(ctx context.Context, d time.Duration) context.Context {
 		cancel()
 	}()
 	return timeoutCtx
+}
+
+func sessionLocalAuthMode(mode auth.LocalAuthMode) LocalAuthMode {
+	switch mode {
+	case auth.LocalAuthModeNoPassword:
+		return LocalAuthModeNoPassword
+	case auth.LocalAuthModePassword:
+		return LocalAuthModePassword
+	default:
+		return LocalAuthModeUnknown
+	}
 }
 
 func isAuthError(err error) bool {
