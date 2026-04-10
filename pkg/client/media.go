@@ -27,9 +27,7 @@ func (c *Client) GetStorageSpace(ctx context.Context) (virtualmedia.StorageSpace
 }
 
 func (c *Client) ListStorageFiles(ctx context.Context) ([]virtualmedia.StorageFile, error) {
-	var payload struct {
-		Files []virtualmedia.StorageFile `json:"files"`
-	}
+	var payload storageFilesResponse
 	if err := c.Call(ctx, "listStorageFiles", nil, &payload); err != nil {
 		return nil, err
 	}
@@ -38,9 +36,9 @@ func (c *Client) ListStorageFiles(ctx context.Context) ([]virtualmedia.StorageFi
 
 func (c *Client) StartStorageFileUpload(ctx context.Context, filename string, size int64) (virtualmedia.UploadStart, error) {
 	var start virtualmedia.UploadStart
-	err := c.Call(ctx, "startStorageFileUpload", map[string]any{
-		"filename": filename,
-		"size":     size,
+	err := c.Call(ctx, "startStorageFileUpload", storageUploadRequest{
+		Filename: filename,
+		Size:     size,
 	}, &start)
 	return start, err
 }

@@ -68,7 +68,7 @@ func TestLiveDeviceConnectsAndStreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.SignalingMode() != SignalingModeWebSocket {
-		t.Fatalf("expected websocket signaling mode, got %q", c.SignalingMode())
+		t.Fatalf("expected websocket signaling mode, got %v", c.SignalingMode())
 	}
 
 	var deviceID string

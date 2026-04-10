@@ -19,18 +19,20 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
-type Phase string
+//go:generate go tool github.com/dmarkham/enumer -type=Phase -linecomment -text -output controller_enums.go
+
+type Phase uint8
 
 const (
-	PhaseIdle         Phase = "idle"
-	PhaseConnecting   Phase = "connecting"
-	PhaseConnected    Phase = "connected"
-	PhaseReconnecting Phase = "reconnecting"
-	PhaseDisconnected Phase = "disconnected"
-	PhaseAuthFailed   Phase = "auth_failed"
-	PhaseOtherSession Phase = "other_session"
-	PhaseRebooting    Phase = "rebooting"
-	PhaseFatal        Phase = "fatal_error"
+	PhaseIdle         Phase = iota // idle
+	PhaseConnecting                // connecting
+	PhaseConnected                 // connected
+	PhaseReconnecting              // reconnecting
+	PhaseDisconnected              // disconnected
+	PhaseAuthFailed                // auth_failed
+	PhaseOtherSession              // other_session
+	PhaseRebooting                 // rebooting
+	PhaseFatal                     // fatal_error
 )
 
 type Config struct {
@@ -170,16 +172,30 @@ func (c *Controller) ReconnectNow() {
 }
 
 func (c *Controller) Reboot() error {
-	return c.mutate("reboot", map[string]any{"force": false}, nil)
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.Reboot(withTimeout(context.Background(), c.cfg.MutationTimeout))
 }
 
 func (c *Controller) SetQuality(value float64) error {
-	if err := c.mutateAndConfirm("setStreamQualityFactor", map[string]any{"factor": value}, func(ctx context.Context) (bool, error) {
-		var current float64
-		if err := c.call(ctx, "getStreamQualityFactor", nil, &current); err != nil {
+	if err := c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetStreamQualityFactor(ctx, value)
+	}, func(ctx context.Context) (bool, error) {
+		current := c.clientIfConnected()
+		if current == nil {
+			return false, errors.New("client not connected")
+		}
+		quality, err := current.GetStreamQualityFactor(ctx)
+		if err != nil {
 			return false, err
 		}
-		return current == value, nil
+		return quality == value, nil
 	}); err != nil {
 		return err
 	}
@@ -194,12 +210,22 @@ func (c *Controller) SetKeyboardLayout(layout string) error {
 	if layout == "" {
 		return errors.New("keyboard layout is required")
 	}
-	if err := c.mutateAndConfirm("setKeyboardLayout", map[string]any{"layout": layout}, func(ctx context.Context) (bool, error) {
-		var current string
-		if err := c.call(ctx, "getKeyboardLayout", nil, &current); err != nil {
+	if err := c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetKeyboardLayout(ctx, layout)
+	}, func(ctx context.Context) (bool, error) {
+		current := c.clientIfConnected()
+		if current == nil {
+			return false, errors.New("client not connected")
+		}
+		currentLayout, err := current.GetKeyboardLayout(ctx)
+		if err != nil {
 			return false, err
 		}
-		return normalizeKeyboardLayoutCode(current) == layout, nil
+		return normalizeKeyboardLayoutCode(currentLayout) == layout, nil
 	}); err != nil {
 		return err
 	}
@@ -209,66 +235,213 @@ func (c *Controller) SetKeyboardLayout(layout string) error {
 	return nil
 }
 
-func (c *Controller) SetTLSMode(mode string) error {
+func (c *Controller) SetTLSMode(mode TLSMode) error {
 	if mode == "" {
 		return errors.New("tls mode is required")
 	}
-	return c.mutateAndConfirm("setTLSState", map[string]any{
-		"state": map[string]any{"mode": mode},
-	}, func(ctx context.Context) (bool, error) {
-		var state struct {
-			Mode string `json:"mode"`
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
 		}
-		if err := c.call(ctx, "getTLSState", nil, &state); err != nil {
+		return current.SetTLSState(ctx, string(mode))
+	}, func(ctx context.Context) (bool, error) {
+		state, err := c.GetTLSState(ctx)
+		if err != nil {
 			return false, err
 		}
-		return state.Mode == mode, nil
+		return state == mode, nil
 	})
 }
 
-func (c *Controller) SetDisplayRotation(rotation string) error {
+func (c *Controller) SetDisplayRotation(rotation DisplayRotation) error {
 	if rotation == "" {
 		return errors.New("display rotation is required")
 	}
-	return c.mutateAndConfirm("setDisplayRotation", map[string]any{
-		"params": map[string]any{"rotation": rotation},
-	}, func(ctx context.Context) (bool, error) {
-		var state struct {
-			Rotation string `json:"rotation"`
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
 		}
-		if err := c.call(ctx, "getDisplayRotation", nil, &state); err != nil {
+		return current.SetDisplayRotation(ctx, string(rotation))
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetDisplayRotation(ctx)
+		if err != nil {
 			return false, err
 		}
-		return state.Rotation == rotation, nil
+		return current == rotation, nil
 	})
 }
 
 func (c *Controller) SetUSBEmulation(enabled bool) error {
-	return c.mutateAndConfirm("setUsbEmulationState", map[string]any{"enabled": enabled}, func(ctx context.Context) (bool, error) {
-		var current bool
-		if err := c.call(ctx, "getUsbEmulationState", nil, &current); err != nil {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetUSBEmulationState(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetUSBEmulationState(ctx)
+		if err != nil {
 			return false, err
 		}
 		return current == enabled, nil
 	})
 }
 
-func (c *Controller) SetNetworkSettings(settings map[string]any) error {
-	if len(settings) == 0 {
+func (c *Controller) SetNetworkSettings(settings NetworkSettings) error {
+	if settings.Hostname == "" && settings.IP == "" {
 		return errors.New("network settings are required")
 	}
-	return c.mutateAndConfirm("setNetworkSettings", map[string]any{"settings": settings}, func(ctx context.Context) (bool, error) {
-		var current map[string]any
-		if err := c.call(ctx, "getNetworkSettings", nil, &current); err != nil {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetNetworkSettings(ctx, client.NetworkSettings{
+			Hostname: settings.Hostname,
+			IP:       settings.IP,
+		})
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetNetworkSettings(ctx)
+		if err != nil {
 			return false, err
 		}
-		for key, want := range settings {
-			if current[key] != want {
-				return false, nil
-			}
-		}
-		return true, nil
+		return current == settings, nil
 	})
+}
+
+func (c *Controller) GetCloudState(ctx context.Context) (CloudState, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return CloudState{}, errors.New("client not connected")
+	}
+	state, err := current.GetCloudState(ctx)
+	if err != nil {
+		return CloudState{}, err
+	}
+	return CloudState{
+		Connected: state.Connected,
+		URL:       state.URL,
+		AppURL:    state.AppURL,
+	}, nil
+}
+
+func (c *Controller) GetTLSState(ctx context.Context) (TLSMode, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return TLSModeUnknown, errors.New("client not connected")
+	}
+	state, err := current.GetTLSState(ctx)
+	if err != nil {
+		return TLSModeUnknown, err
+	}
+	return TLSMode(state.Mode), nil
+}
+
+func (c *Controller) GetUSBEmulationState(ctx context.Context) (bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return false, errors.New("client not connected")
+	}
+	return current.GetUSBEmulationState(ctx)
+}
+
+func (c *Controller) GetUSBConfig(ctx context.Context) (USBConfig, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return USBConfig{}, errors.New("client not connected")
+	}
+	cfg, err := current.GetUSBConfig(ctx)
+	if err != nil {
+		return USBConfig{}, err
+	}
+	return USBConfig{
+		VendorID:  cfg.VendorID,
+		ProductID: cfg.ProductID,
+	}, nil
+}
+
+func (c *Controller) GetUSBDeviceCount(ctx context.Context) (int, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return 0, errors.New("client not connected")
+	}
+	devices, err := current.GetUSBDevices(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return len(devices), nil
+}
+
+func (c *Controller) GetDisplayRotation(ctx context.Context) (DisplayRotation, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return DisplayRotationUnknown, errors.New("client not connected")
+	}
+	state, err := current.GetDisplayRotation(ctx)
+	if err != nil {
+		return DisplayRotationUnknown, err
+	}
+	return DisplayRotation(state.Rotation), nil
+}
+
+func (c *Controller) GetNetworkSettings(ctx context.Context) (NetworkSettings, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return NetworkSettings{}, errors.New("client not connected")
+	}
+	settings, err := current.GetNetworkSettings(ctx)
+	if err != nil {
+		return NetworkSettings{}, err
+	}
+	return NetworkSettings{
+		Hostname: settings.Hostname,
+		IP:       settings.IP,
+	}, nil
+}
+
+func (c *Controller) GetNetworkState(ctx context.Context) (NetworkState, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return NetworkState{}, errors.New("client not connected")
+	}
+	state, err := current.GetNetworkState(ctx)
+	if err != nil {
+		return NetworkState{}, err
+	}
+	return NetworkState{
+		Hostname: state.Hostname,
+		IP:       state.IP,
+		DHCP:     &state.DHCP,
+	}, nil
+}
+
+func (c *Controller) GetDeveloperModeState(ctx context.Context) (*bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	state, err := current.GetDeveloperModeState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &state.Enabled, nil
+}
+
+func (c *Controller) GetLocalVersion(ctx context.Context) (VersionInfo, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return VersionInfo{}, errors.New("client not connected")
+	}
+	version, err := current.GetLocalVersion(ctx)
+	if err != nil {
+		return VersionInfo{}, err
+	}
+	return VersionInfo{
+		AppVersion:    version.AppVersion,
+		SystemVersion: version.SystemVersion,
+	}, nil
 }
 
 func (c *Controller) GetVirtualMediaState(ctx context.Context) (*virtualmedia.State, error) {
@@ -440,7 +613,7 @@ func (c *Controller) Stats() client.StatsSnapshot {
 	stats := current.Stats()
 	stats.HIDReady = snap.HIDReady
 	stats.VideoReady = snap.VideoReady
-	if stats.SignalingMode == "" {
+	if stats.SignalingMode == client.SignalingModeUnknown {
 		stats.SignalingMode = snap.SignalingMode
 	}
 	if stats.RTCState == webrtc.PeerConnectionStateUnknown {
@@ -542,47 +715,31 @@ func (c *Controller) run(ctx context.Context) {
 }
 
 func (c *Controller) bootstrap(ctx context.Context, cl *client.Client) error {
-	var deviceID string
-	var quality float64
-	var keyboardLayout string
-	var edid string
-	var version struct {
-		AppVersion    string `json:"appVersion"`
-		SystemVersion string `json:"systemVersion"`
-	}
-	var updateStatus struct {
-		AppUpdateAvailable    bool `json:"appUpdateAvailable"`
-		SystemUpdateAvailable bool `json:"systemUpdateAvailable"`
-	}
-	var network struct {
-		Hostname string `json:"hostname"`
-	}
-
-	if err := cl.Call(ctx, "getDeviceID", nil, &deviceID); err == nil {
+	if deviceID, err := cl.GetDeviceID(ctx); err == nil {
 		c.setState(func(s *Snapshot) { s.DeviceID = deviceID })
 	}
-	if err := cl.Call(ctx, "getStreamQualityFactor", nil, &quality); err == nil {
+	if quality, err := cl.GetStreamQualityFactor(ctx); err == nil {
 		c.setState(func(s *Snapshot) { s.Quality = quality })
 	}
-	if err := cl.Call(ctx, "getKeyboardLayout", nil, &keyboardLayout); err == nil {
+	if keyboardLayout, err := cl.GetKeyboardLayout(ctx); err == nil {
 		c.setState(func(s *Snapshot) { s.KeyboardLayout = normalizeKeyboardLayoutCode(keyboardLayout) })
 	}
-	if err := cl.Call(ctx, "getEDID", nil, &edid); err == nil {
+	if edid, err := cl.GetEDID(ctx); err == nil {
 		c.setState(func(s *Snapshot) { s.EDID = edid })
 	}
-	if err := cl.Call(ctx, "getLocalVersion", nil, &version); err == nil {
+	if version, err := cl.GetLocalVersion(ctx); err == nil {
 		c.setState(func(s *Snapshot) {
 			s.AppVersion = version.AppVersion
 			s.SystemVersion = version.SystemVersion
 		})
 	}
-	if err := cl.Call(ctx, "getUpdateStatus", nil, &updateStatus); err == nil {
+	if updateStatus, err := cl.GetUpdateStatus(ctx); err == nil {
 		c.setState(func(s *Snapshot) {
 			s.AppUpdateAvailable = updateStatus.AppUpdateAvailable
 			s.SystemUpdateAvailable = updateStatus.SystemUpdateAvailable
 		})
 	}
-	if err := cl.Call(ctx, "getNetworkSettings", nil, &network); err == nil {
+	if network, err := cl.GetNetworkSettings(ctx); err == nil {
 		c.setState(func(s *Snapshot) { s.Hostname = network.Hostname })
 	}
 	c.setState(func(s *Snapshot) {
@@ -703,6 +860,14 @@ func (c *Controller) clientIfConnected() *client.Client {
 	return c.current
 }
 
+func (c *Controller) forceDisconnect(ctx context.Context) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	return current.ForceDisconnect(ctx)
+}
+
 func (c *Controller) call(ctx context.Context, method string, params map[string]any, out any) error {
 	current := c.clientIfConnected()
 	if current == nil {
@@ -715,13 +880,13 @@ func (c *Controller) mutate(method string, params map[string]any, out any) error
 	return c.call(withTimeout(context.Background(), c.cfg.MutationTimeout), method, params, out)
 }
 
-func (c *Controller) mutateAndConfirm(method string, params map[string]any, confirm func(context.Context) (bool, error)) error {
+func (c *Controller) mutateAndConfirm(mutate func(context.Context) error, confirm func(context.Context) (bool, error)) error {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.MutationTimeout)
 	defer cancel()
 
 	resultCh := make(chan error, 1)
 	go func() {
-		resultCh <- c.call(ctx, method, params, nil)
+		resultCh <- mutate(ctx)
 	}()
 
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -751,10 +916,6 @@ func (c *Controller) mutateAndConfirm(method string, params map[string]any, conf
 			return ctx.Err()
 		}
 	}
-}
-
-func (c *Controller) Query(ctx context.Context, method string, params map[string]any, out any) error {
-	return c.call(ctx, method, params, out)
 }
 
 func backoff(attempt int, base, max time.Duration) time.Duration {

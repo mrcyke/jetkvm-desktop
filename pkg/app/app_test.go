@@ -141,31 +141,31 @@ func TestSectionLoadSeqMonotonic(t *testing.T) {
 }
 
 func TestPreferencesNormalizeChromeAnchor(t *testing.T) {
-	prefs := Preferences{ChromeAnchor: "bad_anchor"}
+	prefs := Preferences{ChromeAnchor: ChromeAnchor(255)}
 	prefs.normalize()
-	if prefs.ChromeAnchor != "top_right" {
-		t.Fatalf("chrome anchor = %q, want top_right", prefs.ChromeAnchor)
+	if prefs.ChromeAnchor != chromeAnchorTopRight {
+		t.Fatalf("chrome anchor = %v, want %v", prefs.ChromeAnchor, chromeAnchorTopRight)
 	}
 }
 
 func TestPreferencesNormalizeChromeLayout(t *testing.T) {
-	prefs := Preferences{ChromeLayout: "diagonal"}
+	prefs := Preferences{ChromeLayout: ChromeLayout(255)}
 	prefs.normalize()
-	if prefs.ChromeLayout != "horizontal" {
-		t.Fatalf("chrome layout = %q, want horizontal", prefs.ChromeLayout)
+	if prefs.ChromeLayout != chromeLayoutHorizontal {
+		t.Fatalf("chrome layout = %v, want %v", prefs.ChromeLayout, chromeLayoutHorizontal)
 	}
 }
 
 func TestChromeAnchorOrigin(t *testing.T) {
-	x, y := chromeAnchorOrigin("top_left", 1280, 720, 200, 34)
+	x, y := chromeAnchorOrigin(chromeAnchorTopLeft, 1280, 720, 200, 34)
 	if x != 18 || y != 18 {
 		t.Fatalf("top_left origin = (%v,%v), want (18,18)", x, y)
 	}
-	x, y = chromeAnchorOrigin("bottom_center", 1280, 720, 200, 34)
+	x, y = chromeAnchorOrigin(chromeAnchorBottomCenter, 1280, 720, 200, 34)
 	if x != 540 || y != 668 {
 		t.Fatalf("bottom_center origin = (%v,%v), want (540,668)", x, y)
 	}
-	x, y = chromeAnchorOrigin("right_center", 1280, 720, 200, 34)
+	x, y = chromeAnchorOrigin(chromeAnchorRightCenter, 1280, 720, 200, 34)
 	if x != 1062 || y != 343 {
 		t.Fatalf("right_center origin = (%v,%v), want (1062,343)", x, y)
 	}
@@ -176,8 +176,8 @@ func TestLayoutChromeButtonsVertical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.prefs.ChromeAnchor = "top_left"
-	app.prefs.ChromeLayout = "vertical"
+	app.prefs.ChromeAnchor = chromeAnchorTopLeft
+	app.prefs.ChromeLayout = chromeLayoutVertical
 
 	buttons := app.layoutChromeButtons(1280, 720, session.Snapshot{Phase: session.PhaseConnected})
 	if len(buttons) != 5 {
@@ -197,8 +197,8 @@ func TestChromeRevealZoneTracksAnchor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app.prefs.ChromeAnchor = "left_center"
-	app.prefs.ChromeLayout = "vertical"
+	app.prefs.ChromeAnchor = chromeAnchorLeftCenter
+	app.prefs.ChromeLayout = chromeLayoutVertical
 	leftZone := app.chromeRevealZone(1280, 720, session.Snapshot{Phase: session.PhaseConnected})
 	if !leftZone.contains(30, 360) {
 		t.Fatalf("expected left-center hot zone to include left-side cursor, got %+v", leftZone)
@@ -207,8 +207,8 @@ func TestChromeRevealZoneTracksAnchor(t *testing.T) {
 		t.Fatalf("expected left-center hot zone to exclude top-center cursor, got %+v", leftZone)
 	}
 
-	app.prefs.ChromeAnchor = "top_right"
-	app.prefs.ChromeLayout = "horizontal"
+	app.prefs.ChromeAnchor = chromeAnchorTopRight
+	app.prefs.ChromeLayout = chromeLayoutHorizontal
 	topZone := app.chromeRevealZone(1280, 720, session.Snapshot{Phase: session.PhaseConnected})
 	if !topZone.contains(1200, 30) {
 		t.Fatalf("expected top-right hot zone to include top-right cursor, got %+v", topZone)
@@ -302,7 +302,7 @@ func TestNewLauncherStartsInBrowseMode(t *testing.T) {
 		t.Fatal("expected launcher to be open without a target")
 	}
 	if app.launcherMode != launcherModeBrowse {
-		t.Fatalf("launcher mode = %q, want browse", app.launcherMode)
+		t.Fatalf("launcher mode = %v, want %v", app.launcherMode, launcherModeBrowse)
 	}
 }
 
@@ -338,7 +338,7 @@ func TestShowPasswordPromptSwitchesLauncherMode(t *testing.T) {
 		t.Fatal("expected launcher to open")
 	}
 	if app.launcherMode != launcherModePassword {
-		t.Fatalf("launcher mode = %q, want password", app.launcherMode)
+		t.Fatalf("launcher mode = %v, want %v", app.launcherMode, launcherModePassword)
 	}
 	if app.pendingTarget != "http://jetkvm.local" {
 		t.Fatalf("pending target = %q, want http://jetkvm.local", app.pendingTarget)
@@ -375,7 +375,7 @@ func TestAppPasswordRetryFlowConnects(t *testing.T) {
 		t.Fatal("expected launcher to open after auth failure")
 	}
 	if app.launcherMode != launcherModePassword {
-		t.Fatalf("launcher mode = %q, want password", app.launcherMode)
+		t.Fatalf("launcher mode = %v, want %v", app.launcherMode, launcherModePassword)
 	}
 
 	app.launcherPassword = "secret"
@@ -421,7 +421,7 @@ func TestAppWrongPasswordReturnsToPasswordPromptWithError(t *testing.T) {
 		t.Fatal("expected password prompt to reopen after auth failure")
 	}
 	if app.launcherMode != launcherModePassword {
-		t.Fatalf("launcher mode = %q, want password", app.launcherMode)
+		t.Fatalf("launcher mode = %v, want %v", app.launcherMode, launcherModePassword)
 	}
 	if app.launcherError == "" {
 		t.Fatal("expected auth error to be shown in password prompt")
@@ -474,7 +474,7 @@ func waitForAppPhase(t *testing.T, app *App, phase session.Phase, timeout time.D
 		time.Sleep(25 * time.Millisecond)
 	}
 	if app.ctrl == nil {
-		t.Fatalf("timed out waiting for phase %s: controller is nil", phase)
+		t.Fatalf("timed out waiting for phase %v: controller is nil", phase)
 	}
-	t.Fatalf("timed out waiting for phase %s, got %+v", phase, app.ctrl.Snapshot())
+	t.Fatalf("timed out waiting for phase %v, got %+v", phase, app.ctrl.Snapshot())
 }

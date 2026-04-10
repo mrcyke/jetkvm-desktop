@@ -26,11 +26,14 @@ type Config struct {
 	RPCTimeout time.Duration
 }
 
-type SignalingMode string
+//go:generate go tool github.com/dmarkham/enumer -type=SignalingMode -linecomment -text -output client_enums.go
+
+type SignalingMode uint8
 
 const (
-	SignalingModeLegacyHTTP SignalingMode = "legacy_http"
-	SignalingModeWebSocket  SignalingMode = "websocket"
+	SignalingModeUnknown    SignalingMode = iota // unknown
+	SignalingModeLegacyHTTP                      // legacy_http
+	SignalingModeWebSocket                       // websocket
 )
 
 type LifecycleEvent struct {
@@ -235,9 +238,9 @@ func (c *Client) Connect(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := c.writeSignal(map[string]any{
-			"type": "offer",
-			"data": map[string]string{"sd": signaling.EncodeSDP(rawOffer)},
+		if err := c.writeSignal(signalingMessage{
+			Type: "offer",
+			Data: offerSignalData{SD: signaling.EncodeSDP(rawOffer)},
 		}); err != nil {
 			return err
 		}
@@ -303,7 +306,7 @@ func (c *Client) WaitForHID(ctx context.Context) error {
 	}
 }
 
-func (c *Client) Call(ctx context.Context, method string, params map[string]any, out any) error {
+func (c *Client) Call(ctx context.Context, method string, params any, out any) error {
 	if c.rpcDC == nil {
 		return fmt.Errorf("rpc data channel not ready")
 	}
@@ -383,7 +386,7 @@ func (c *Client) SendRelMouse(dx, dy int8, buttons byte) error {
 }
 
 func (c *Client) SendWheel(delta int8) error {
-	return c.Call(context.Background(), "wheelReport", map[string]any{"wheelY": int(delta)}, nil)
+	return c.sendWheelReport(context.Background(), delta)
 }
 
 func (c *Client) ExecuteKeyboardMacro(isPaste bool, steps []hidrpc.KeyboardMacroStep) error {
@@ -663,9 +666,9 @@ func (c *Client) openSignaling(ctx context.Context, pc *webrtc.PeerConnection, a
 		if init.Candidate == "" {
 			return
 		}
-		_ = c.writeSignal(map[string]any{
-			"type": "new-ice-candidate",
-			"data": init,
+		_ = c.writeSignal(signalingMessage{
+			Type: "new-ice-candidate",
+			Data: init,
 		})
 	})
 

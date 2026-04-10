@@ -9,24 +9,66 @@ import (
 )
 
 type Preferences struct {
-	Theme           string `json:"theme"`
-	PinChrome       bool   `json:"pin_chrome"`
-	ChromeAnchor    string `json:"chrome_anchor"`
-	ChromeLayout    string `json:"chrome_layout"`
-	HideCursor      bool   `json:"hide_cursor"`
-	ShowPressedKeys bool   `json:"show_pressed_keys"`
-	ScrollThrottle  string `json:"scroll_throttle"`
+	Theme           Theme          `json:"theme"`
+	PinChrome       bool           `json:"pin_chrome"`
+	ChromeAnchor    ChromeAnchor   `json:"chrome_anchor"`
+	ChromeLayout    ChromeLayout   `json:"chrome_layout"`
+	HideCursor      bool           `json:"hide_cursor"`
+	ShowPressedKeys bool           `json:"show_pressed_keys"`
+	ScrollThrottle  ScrollThrottle `json:"scroll_throttle"`
 }
+
+//go:generate go tool github.com/dmarkham/enumer -type=Theme,ChromeAnchor,ChromeLayout,ScrollThrottle -linecomment -json -text -output prefs_enums.go
+
+type Theme uint8
+
+const (
+	themeUnknown Theme = iota // unknown
+	themeDark                 // dark
+)
+
+type ChromeAnchor uint8
+
+const (
+	chromeAnchorUnknown      ChromeAnchor = iota // unknown
+	chromeAnchorTopLeft                          // top_left
+	chromeAnchorTopCenter                        // top_center
+	chromeAnchorTopRight                         // top_right
+	chromeAnchorLeftCenter                       // left_center
+	chromeAnchorRightCenter                      // right_center
+	chromeAnchorBottomLeft                       // bottom_left
+	chromeAnchorBottomCenter                     // bottom_center
+	chromeAnchorBottomRight                      // bottom_right
+)
+
+type ChromeLayout uint8
+
+const (
+	chromeLayoutUnknown    ChromeLayout = iota // unknown
+	chromeLayoutHorizontal                     // horizontal
+	chromeLayoutVertical                       // vertical
+)
+
+type ScrollThrottle uint8
+
+const (
+	scrollThrottleUnknown ScrollThrottle = iota // unknown
+	scrollThrottleOff                           // 0
+	scrollThrottle10ms                          // 10
+	scrollThrottle25ms                          // 25
+	scrollThrottle50ms                          // 50
+	scrollThrottle100ms                         // 100
+)
 
 func defaultPreferences() Preferences {
 	return Preferences{
-		Theme:           "dark",
+		Theme:           themeDark,
 		PinChrome:       false,
-		ChromeAnchor:    "top_right",
-		ChromeLayout:    "horizontal",
+		ChromeAnchor:    chromeAnchorTopRight,
+		ChromeLayout:    chromeLayoutHorizontal,
 		HideCursor:      false,
 		ShowPressedKeys: false,
-		ScrollThrottle:  "0",
+		ScrollThrottle:  scrollThrottleOff,
 	}
 }
 
@@ -75,52 +117,52 @@ func preferencesPath() (string, error) {
 }
 
 func (p *Preferences) normalize() {
-	if p.Theme == "" {
-		p.Theme = "dark"
+	if p.Theme == themeUnknown {
+		p.Theme = themeDark
 	}
 	switch p.ScrollThrottle {
-	case "0", "10", "25", "50", "100":
+	case scrollThrottleOff, scrollThrottle10ms, scrollThrottle25ms, scrollThrottle50ms, scrollThrottle100ms:
 	default:
-		p.ScrollThrottle = "0"
+		p.ScrollThrottle = scrollThrottleOff
 	}
 	switch p.ChromeAnchor {
-	case "top_left", "top_center", "top_right", "left_center", "right_center", "bottom_left", "bottom_center", "bottom_right":
+	case chromeAnchorTopLeft, chromeAnchorTopCenter, chromeAnchorTopRight, chromeAnchorLeftCenter, chromeAnchorRightCenter, chromeAnchorBottomLeft, chromeAnchorBottomCenter, chromeAnchorBottomRight:
 	default:
-		p.ChromeAnchor = "top_right"
+		p.ChromeAnchor = chromeAnchorTopRight
 	}
 	switch p.ChromeLayout {
-	case "horizontal", "vertical":
+	case chromeLayoutHorizontal, chromeLayoutVertical:
 	default:
-		p.ChromeLayout = "horizontal"
+		p.ChromeLayout = chromeLayoutHorizontal
 	}
 }
 
-func scrollThrottleFromPref(value string) time.Duration {
+func scrollThrottleFromPref(value ScrollThrottle) time.Duration {
 	switch value {
-	case "10":
+	case scrollThrottle10ms:
 		return 10 * time.Millisecond
-	case "25":
+	case scrollThrottle25ms:
 		return 25 * time.Millisecond
-	case "50":
+	case scrollThrottle50ms:
 		return 50 * time.Millisecond
-	case "100":
+	case scrollThrottle100ms:
 		return 100 * time.Millisecond
 	default:
 		return 0
 	}
 }
 
-func scrollThrottlePref(value time.Duration) string {
+func scrollThrottlePref(value time.Duration) ScrollThrottle {
 	switch value {
 	case 10 * time.Millisecond:
-		return "10"
+		return scrollThrottle10ms
 	case 25 * time.Millisecond:
-		return "25"
+		return scrollThrottle25ms
 	case 50 * time.Millisecond:
-		return "50"
+		return scrollThrottle50ms
 	case 100 * time.Millisecond:
-		return "100"
+		return scrollThrottle100ms
 	default:
-		return "0"
+		return scrollThrottleOff
 	}
 }

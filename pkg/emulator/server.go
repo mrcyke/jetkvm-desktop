@@ -20,8 +20,8 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/hidrpc"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/jsonrpc"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/signaling"
-	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/video"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
 type AuthMode string
@@ -79,15 +79,14 @@ type Server struct {
 	httpServer *http.Server
 	listener   net.Listener
 
-	mu        sync.Mutex
-	session   *session
-	token     string
-	state     DeviceState
-	inputs    []InputRecord
-	media     *virtualmedia.State
-	storage   map[string]storedFile
-	uploads   map[string]*pendingUpload
-	startedCh chan struct{}
+	mu      sync.Mutex
+	session *session
+	token   string
+	state   DeviceState
+	inputs  []InputRecord
+	media   *virtualmedia.State
+	storage map[string]storedFile
+	uploads map[string]*pendingUpload
 }
 
 type storedFile struct {
@@ -128,8 +127,8 @@ func NewServer(cfg Config) (*Server, error) {
 		state:  DeviceState{DeviceID: "emu-jetkvm-001", VideoState: "ready", StreamQualityFactor: 0.75, KeyboardLEDMask: 0, KeyboardModifiers: 0, KeysDown: []byte{0, 0, 0, 0, 0, 0}, Hostname: "jetkvm-emulator", KeyboardLayout: "en_US", TLSMode: "disabled", DisplayRotation: "270", USBEmulation: true},
 		inputs: make([]InputRecord, 0, 32),
 		storage: map[string]storedFile{
-			"debian.iso": {data: bytes.Repeat([]byte("D"), 8 * 1024), createdAt: time.Now().Add(-2 * time.Hour)},
-			"tools.img":  {data: bytes.Repeat([]byte("I"), 4 * 1024), createdAt: time.Now().Add(-1 * time.Hour)},
+			"debian.iso": {data: bytes.Repeat([]byte("D"), 8*1024), createdAt: time.Now().Add(-2 * time.Hour)},
+			"tools.img":  {data: bytes.Repeat([]byte("I"), 4*1024), createdAt: time.Now().Add(-1 * time.Hour)},
 		},
 		uploads: make(map[string]*pendingUpload),
 	}
@@ -732,6 +731,14 @@ func (s *session) sendEvent(method string, params any) error {
 	return s.rpc.SendText(string(data))
 }
 
+func requestParams(raw any) map[string]any {
+	params, _ := raw.(map[string]any)
+	if params == nil {
+		return map[string]any{}
+	}
+	return params
+}
+
 func (s *session) handleRPC(data []byte) error {
 	decoded, err := jsonrpc.DecodeMessage(data)
 	if err != nil {
@@ -748,6 +755,7 @@ func (s *session) handleRPC(data []byte) error {
 		return nil
 	}
 	applyButDrop := s.serverRef.cfg.Faults.ApplyButDropRPCMethod
+	params := requestParams(req.Params)
 
 	var resp jsonrpc.Response
 	switch req.Method {
@@ -762,7 +770,7 @@ func (s *session) handleRPC(data []byte) error {
 	case "getNetworkState":
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"hostname": s.serverRef.state.Hostname, "ip": "127.0.0.1", "dhcp": true})
 	case "setNetworkSettings":
-		if settings, ok := req.Params["settings"].(map[string]any); ok {
+		if settings, ok := params["settings"].(map[string]any); ok {
 			if hostname, ok := settings["hostname"].(string); ok && hostname != "" {
 				s.serverRef.state.Hostname = hostname
 			}
@@ -778,7 +786,7 @@ func (s *session) handleRPC(data []byte) error {
 	case "getStreamQualityFactor":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.StreamQualityFactor)
 	case "setStreamQualityFactor":
-		if factor, ok := req.Params["factor"].(float64); ok {
+		if factor, ok := params["factor"].(float64); ok {
 			s.serverRef.state.StreamQualityFactor = factor
 			if applyButDrop == req.Method {
 				return nil
@@ -788,7 +796,7 @@ func (s *session) handleRPC(data []byte) error {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing factor", nil)
 		}
 	case "wheelReport":
-		if wheelY, ok := req.Params["wheelY"].(float64); ok {
+		if wheelY, ok := params["wheelY"].(float64); ok {
 			s.serverRef.appendInput("rpc", "rpc.wheelReport", fmt.Sprintf("wheelY=%d", int8(wheelY)))
 			resp = jsonrpc.NewResponse(req.ID, true)
 		} else {
@@ -817,7 +825,7 @@ func (s *session) handleRPC(data []byte) error {
 	case "getKeyboardLayout":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.KeyboardLayout)
 	case "setKeyboardLayout":
-		if layout, ok := req.Params["layout"].(string); ok && layout != "" {
+		if layout, ok := params["layout"].(string); ok && layout != "" {
 			s.serverRef.state.KeyboardLayout = layout
 			if applyButDrop == req.Method {
 				return nil
@@ -829,7 +837,7 @@ func (s *session) handleRPC(data []byte) error {
 	case "getUsbEmulationState":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.USBEmulation)
 	case "setUsbEmulationState":
-		if enabled, ok := req.Params["enabled"].(bool); ok {
+		if enabled, ok := params["enabled"].(bool); ok {
 			s.serverRef.state.USBEmulation = enabled
 			if applyButDrop == req.Method {
 				return nil
@@ -843,7 +851,7 @@ func (s *session) handleRPC(data []byte) error {
 	case "getTLSState":
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"mode": s.serverRef.state.TLSMode})
 	case "setTLSState":
-		if state, ok := req.Params["state"].(map[string]any); ok {
+		if state, ok := params["state"].(map[string]any); ok {
 			if mode, ok := state["mode"].(string); ok && mode != "" {
 				s.serverRef.state.TLSMode = mode
 				if applyButDrop == req.Method {
@@ -863,8 +871,8 @@ func (s *session) handleRPC(data []byte) error {
 	case "getDisplayRotation":
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"rotation": s.serverRef.state.DisplayRotation})
 	case "setDisplayRotation":
-		if params, ok := req.Params["params"].(map[string]any); ok {
-			if rotation, ok := params["rotation"].(string); ok && rotation != "" {
+		if rotationParams, ok := params["params"].(map[string]any); ok {
+			if rotation, ok := rotationParams["rotation"].(string); ok && rotation != "" {
 				s.serverRef.state.DisplayRotation = rotation
 				if applyButDrop == req.Method {
 					return nil
@@ -889,8 +897,8 @@ func (s *session) handleRPC(data []byte) error {
 		s.serverRef.mu.Unlock()
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "mountWithHTTP":
-		rawURL, _ := req.Params["url"].(string)
-		rawMode, _ := req.Params["mode"].(string)
+		rawURL, _ := params["url"].(string)
+		rawMode, _ := params["mode"].(string)
 		if strings.TrimSpace(rawURL) == "" || strings.TrimSpace(rawMode) == "" {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing mount params", nil)
 			break
@@ -910,8 +918,8 @@ func (s *session) handleRPC(data []byte) error {
 		s.serverRef.mu.Unlock()
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "mountWithStorage":
-		filename, _ := req.Params["filename"].(string)
-		rawMode, _ := req.Params["mode"].(string)
+		filename, _ := params["filename"].(string)
+		rawMode, _ := params["mode"].(string)
 		filename = filepath.Base(strings.TrimSpace(filename))
 		if filename == "" || strings.TrimSpace(rawMode) == "" {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing mount params", nil)
@@ -965,7 +973,7 @@ func (s *session) handleRPC(data []byte) error {
 			BytesFree: total - used,
 		})
 	case "deleteStorageFile":
-		filename, _ := req.Params["filename"].(string)
+		filename, _ := params["filename"].(string)
 		filename = filepath.Base(strings.TrimSpace(filename))
 		if filename == "" {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing filename", nil)
@@ -981,9 +989,9 @@ func (s *session) handleRPC(data []byte) error {
 		s.serverRef.mu.Unlock()
 		resp = jsonrpc.NewResponse(req.ID, true)
 	case "startStorageFileUpload":
-		filename, _ := req.Params["filename"].(string)
+		filename, _ := params["filename"].(string)
 		filename = filepath.Base(strings.TrimSpace(filename))
-		size, _ := req.Params["size"].(float64)
+		size, _ := params["size"].(float64)
 		if filename == "" || size <= 0 {
 			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "invalid upload params", nil)
 			break

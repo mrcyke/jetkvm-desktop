@@ -13,20 +13,22 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
 )
 
-type iconKind string
+//go:generate go tool github.com/dmarkham/enumer -type=iconKind,settingsSection -linecomment -json -text -output chrome_enums.go
+
+type iconKind uint8
 
 const (
-	iconReconnect  iconKind = "reconnect"
-	iconMouse      iconKind = "mouse"
-	iconPaste      iconKind = "paste"
-	iconMedia      iconKind = "media"
-	iconStats      iconKind = "stats"
-	iconMinus      iconKind = "minus"
-	iconPlus       iconKind = "plus"
-	iconPower      iconKind = "power"
-	iconSettings   iconKind = "settings"
-	iconFullscreen iconKind = "fullscreen"
-	iconClose      iconKind = "close"
+	iconReconnect  iconKind = iota // reconnect
+	iconMouse                      // mouse
+	iconPaste                      // paste
+	iconMedia                      // media
+	iconStats                      // stats
+	iconMinus                      // minus
+	iconPlus                       // plus
+	iconPower                      // power
+	iconSettings                   // settings
+	iconFullscreen                 // fullscreen
+	iconClose                      // close
 )
 
 type chromeButton struct {
@@ -39,20 +41,20 @@ type chromeButton struct {
 	rect    rect
 }
 
-type settingsSection string
+type settingsSection uint8
 
 const (
-	sectionGeneral    settingsSection = "general"
-	sectionMouse      settingsSection = "mouse"
-	sectionKeyboard   settingsSection = "keyboard"
-	sectionVideo      settingsSection = "video"
-	sectionHardware   settingsSection = "hardware"
-	sectionAccess     settingsSection = "access"
-	sectionAppearance settingsSection = "appearance"
-	sectionMacros     settingsSection = "macros"
-	sectionNetwork    settingsSection = "network"
-	sectionMQTT       settingsSection = "mqtt"
-	sectionAdvanced   settingsSection = "advanced"
+	sectionGeneral    settingsSection = iota // general
+	sectionMouse                             // mouse
+	sectionKeyboard                          // keyboard
+	sectionVideo                             // video
+	sectionHardware                          // hardware
+	sectionAccess                            // access
+	sectionAppearance                        // appearance
+	sectionMacros                            // macros
+	sectionNetwork                           // network
+	sectionMQTT                              // mqtt
+	sectionAdvanced                          // advanced
 )
 
 type settingsSectionDef struct {
@@ -71,38 +73,27 @@ type sectionData struct {
 }
 
 type accessState struct {
-	Loading        bool
-	Error          string
-	CloudConnected bool
-	CloudURL       string
-	CloudAppURL    string
-	TLSMode        string
+	Loading bool
+	Error   string
+	State   session.AccessState
 }
 
 type hardwareState struct {
-	Loading           bool
-	Error             string
-	USBEmulation      *bool
-	USBConfig         string
-	USBDevicesSummary string
-	DisplayRotation   string
+	Loading bool
+	Error   string
+	State   session.HardwareState
 }
 
 type networkState struct {
-	Loading  bool
-	Error    string
-	Hostname string
-	IP       string
-	DHCP     *bool
+	Loading bool
+	Error   string
+	State   session.NetworkState
 }
 
 type advancedState struct {
-	Loading       bool
-	Error         string
-	DevMode       *bool
-	USBEmulation  *bool
-	AppVersion    string
-	SystemVersion string
+	Loading bool
+	Error   string
+	State   session.AdvancedState
 }
 
 type settingsActionVisual struct {
@@ -286,7 +277,7 @@ func (a *App) layoutChromeButtons(width, height int, snap session.Snapshot) []ch
 	const gap = 8.0
 	totalW := size
 	totalH := size
-	horizontal := a.prefs.ChromeLayout != "vertical"
+	horizontal := a.prefs.ChromeLayout != chromeLayoutVertical
 	if horizontal {
 		totalW = (size * float64(len(defs))) + (gap * float64(len(defs)-1))
 	} else {
@@ -340,22 +331,22 @@ func (a *App) chromeRevealZone(width, height int, snap session.Snapshot) rect {
 	}
 }
 
-func chromeAnchorOrigin(anchor string, width, height, clusterW, clusterH float64) (float64, float64) {
+func chromeAnchorOrigin(anchor ChromeAnchor, width, height, clusterW, clusterH float64) (float64, float64) {
 	const margin = 18.0
 	switch anchor {
-	case "top_left":
+	case chromeAnchorTopLeft:
 		return margin, margin
-	case "top_center":
+	case chromeAnchorTopCenter:
 		return (width - clusterW) / 2, margin
-	case "left_center":
+	case chromeAnchorLeftCenter:
 		return margin, (height - clusterH) / 2
-	case "right_center":
+	case chromeAnchorRightCenter:
 		return width - clusterW - margin, (height - clusterH) / 2
-	case "bottom_left":
+	case chromeAnchorBottomLeft:
 		return margin, height - clusterH - margin
-	case "bottom_center":
+	case chromeAnchorBottomCenter:
 		return (width - clusterW) / 2, height - clusterH - margin
-	case "bottom_right":
+	case chromeAnchorBottomRight:
 		return width - clusterW - margin, height - clusterH - margin
 	default:
 		return width - clusterW - margin, margin
@@ -566,7 +557,7 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	sideBtnH, sideGap, sideFontSize := settingsSidebarMetrics(panelH, len(sections))
 	for _, section := range sections {
 		btn := chromeButton{
-			id:      "section:" + string(section.id),
+			id:      "section:" + section.id.String(),
 			label:   section.label,
 			enabled: true,
 			active:  a.settingsSection == section.id,
@@ -678,7 +669,7 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 		leftW := (w - 14) * 0.48
 		rightW := w - leftW - 14
 		leftH := max(220, 82+wrappedTextHeight("Rotate the displayed feed to match the connected panel orientation.", leftW-32, 12)+68)
-		rightH := max(220, 126+wrappedTextHeight(state.USBDevicesSummary, rightW-32, 12)+68)
+		rightH := max(220, 126+wrappedTextHeight(usbDevicesSummary(state.State.USBDeviceCount), rightW-32, 12)+68)
 		if state.Error != "" {
 			errH := wrappedTextHeight(state.Error, w-32, 12) + 24
 			return max(leftH, max(rightH, 192+errH))
@@ -690,7 +681,7 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 		a.mu.RUnlock()
 		leftW := (w - 14) * 0.5
 		rightW := w - leftW - 14
-		leftH := max(220, 156+wrappedTextHeight(fallbackLabel(state.CloudAppURL, "Unavailable"), leftW-32, 12)+24)
+		leftH := max(220, 156+wrappedTextHeight(fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), leftW-32, 12)+24)
 		rightH := max(220, 84+wrappedTextHeight("Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", rightW-32, 12)+66)
 		if state.Error != "" {
 			errH := wrappedTextHeight(state.Error, w-32, 12) + 24
@@ -811,23 +802,13 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 	switch section {
 	case sectionAccess:
 		state := accessState{Loading: false}
-		var cloud struct {
-			Connected bool   `json:"connected"`
-			URL       string `json:"url"`
-			AppURL    string `json:"appUrl"`
+		if cloud, callErr := a.ctrl.GetCloudState(ctx); callErr == nil {
+			state.State.Cloud = cloud
 		}
-		var tlsState struct {
-			Mode string `json:"mode"`
+		if tlsMode, callErr := a.ctrl.GetTLSState(ctx); callErr == nil {
+			state.State.TLS = tlsMode
 		}
-		if callErr := a.ctrl.Query(ctx, "getCloudState", nil, &cloud); callErr == nil {
-			state.CloudConnected = cloud.Connected
-			state.CloudURL = cloud.URL
-			state.CloudAppURL = cloud.AppURL
-		}
-		if callErr := a.ctrl.Query(ctx, "getTLSState", nil, &tlsState); callErr == nil {
-			state.TLSMode = tlsState.Mode
-		}
-		if state.CloudURL == "" && state.TLSMode == "" {
+		if state.State.Cloud.URL == "" && state.State.TLS == session.TLSModeUnknown {
 			state.Error = "No access RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -838,28 +819,21 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Unlock()
 	case sectionHardware:
 		state := hardwareState{Loading: false}
-		var usbEnabled bool
-		var usbConfig struct {
-			VendorID  string `json:"vendor_id"`
-			ProductID string `json:"product_id"`
+		if usbEnabled, callErr := a.ctrl.GetUSBEmulationState(ctx); callErr == nil {
+			state.State.USBEmulation = &usbEnabled
 		}
-		var usbDevices []any
-		var rotation struct {
-			Rotation string `json:"rotation"`
+		if usbConfig, callErr := a.ctrl.GetUSBConfig(ctx); callErr == nil {
+			state.State.USBConfig = usbConfig
 		}
-		if callErr := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); callErr == nil {
-			state.USBEmulation = &usbEnabled
+		if count, callErr := a.ctrl.GetUSBDeviceCount(ctx); callErr == nil {
+			state.State.USBDeviceCount = count
 		}
-		if callErr := a.ctrl.Query(ctx, "getUsbConfig", nil, &usbConfig); callErr == nil {
-			state.USBConfig = fmt.Sprintf("%s / %s", usbConfig.VendorID, usbConfig.ProductID)
+		if rotation, callErr := a.ctrl.GetDisplayRotation(ctx); callErr == nil {
+			state.State.DisplayRotation = rotation
 		}
-		if callErr := a.ctrl.Query(ctx, "getUsbDevices", nil, &usbDevices); callErr == nil {
-			state.USBDevicesSummary = fmt.Sprintf("%d configured classes", len(usbDevices))
-		}
-		if callErr := a.ctrl.Query(ctx, "getDisplayRotation", nil, &rotation); callErr == nil {
-			state.DisplayRotation = rotation.Rotation
-		}
-		if state.USBEmulation == nil && state.USBConfig == "" && state.DisplayRotation == "" {
+		if state.State.USBEmulation == nil &&
+			state.State.USBConfig == (session.USBConfig{}) &&
+			state.State.DisplayRotation == session.DisplayRotationUnknown {
 			state.Error = "No hardware RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -870,29 +844,20 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Unlock()
 	case sectionNetwork:
 		state := networkState{Loading: false}
-		var settings struct {
-			Hostname string `json:"hostname"`
-			IP       string `json:"ip"`
+		if settings, callErr := a.ctrl.GetNetworkSettings(ctx); callErr == nil {
+			state.State.Hostname = settings.Hostname
+			state.State.IP = settings.IP
 		}
-		var current struct {
-			Hostname string `json:"hostname"`
-			IP       string `json:"ip"`
-			DHCP     bool   `json:"dhcp"`
-		}
-		if callErr := a.ctrl.Query(ctx, "getNetworkSettings", nil, &settings); callErr == nil {
-			state.Hostname = settings.Hostname
-			state.IP = settings.IP
-		}
-		if callErr := a.ctrl.Query(ctx, "getNetworkState", nil, &current); callErr == nil {
-			if state.Hostname == "" {
-				state.Hostname = current.Hostname
+		if current, callErr := a.ctrl.GetNetworkState(ctx); callErr == nil {
+			if state.State.Hostname == "" {
+				state.State.Hostname = current.Hostname
 			}
-			if state.IP == "" {
-				state.IP = current.IP
+			if state.State.IP == "" {
+				state.State.IP = current.IP
 			}
-			state.DHCP = &current.DHCP
+			state.State.DHCP = current.DHCP
 		}
-		if state.Hostname == "" && state.IP == "" && state.DHCP == nil {
+		if state.State.Hostname == "" && state.State.IP == "" && state.State.DHCP == nil {
 			state.Error = "No network RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -903,25 +868,16 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 		a.mu.Unlock()
 	case sectionAdvanced:
 		state := advancedState{Loading: false}
-		var devMode struct {
-			Enabled bool `json:"enabled"`
+		if devMode, callErr := a.ctrl.GetDeveloperModeState(ctx); callErr == nil {
+			state.State.DevMode = devMode
 		}
-		var usbEnabled bool
-		var version struct {
-			AppVersion    string `json:"appVersion"`
-			SystemVersion string `json:"systemVersion"`
+		if usbEnabled, callErr := a.ctrl.GetUSBEmulationState(ctx); callErr == nil {
+			state.State.USBEmulation = &usbEnabled
 		}
-		if callErr := a.ctrl.Query(ctx, "getDevModeState", nil, &devMode); callErr == nil {
-			state.DevMode = &devMode.Enabled
+		if version, callErr := a.ctrl.GetLocalVersion(ctx); callErr == nil {
+			state.State.Version = version
 		}
-		if callErr := a.ctrl.Query(ctx, "getUsbEmulationState", nil, &usbEnabled); callErr == nil {
-			state.USBEmulation = &usbEnabled
-		}
-		if callErr := a.ctrl.Query(ctx, "getLocalVersion", nil, &version); callErr == nil {
-			state.AppVersion = version.AppVersion
-			state.SystemVersion = version.SystemVersion
-		}
-		if state.DevMode == nil && state.USBEmulation == nil && state.AppVersion == "" {
+		if state.State.DevMode == nil && state.State.USBEmulation == nil && state.State.Version.AppVersion == "" {
 			state.Error = "No advanced RPC state available on this target"
 			err = errors.New(state.Error)
 		}
@@ -1008,7 +964,7 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 	cardH := a.settingsWideBodyHeight(sectionGeneral, w)
 	a.drawSettingsCard(screen, x, y, leftW, cardH, "Device", "")
 	drawSettingsKeyValue(screen, "Base URL", snap.BaseURL, x+16, y+48, 116)
-	drawSettingsKeyValue(screen, "Phase", string(snap.Phase), x+16, y+74, 116)
+	drawSettingsKeyValue(screen, "Phase", snap.Phase.String(), x+16, y+74, 116)
 	drawSettingsKeyValue(screen, "Signaling", signalingLabel(snap.SignalingMode), x+16, y+100, 116)
 	drawSettingsKeyValue(screen, "App Version", snap.AppVersion, x+16, y+132, 116)
 	drawSettingsKeyValue(screen, "System Version", snap.SystemVersion, x+16, y+158, 116)
@@ -1141,20 +1097,20 @@ func (a *App) drawSettingsHardware(screen *ebiten.Image, x, y, w float64) {
 		drawText(screen, "Loading hardware state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
 	}
-	drawSettingsKeyValue(screen, "Rotation", state.DisplayRotation, x+16, y+50, 86)
+	drawSettingsKeyValue(screen, "Rotation", string(state.State.DisplayRotation), x+16, y+50, 86)
 	drawWrappedText(screen, "Rotate the JetKVM device display. This does not rotate the remote host video feed.", x+16, y+82, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	rotateState := a.settingsAction(settingsGroupDisplayRotate)
-	a.drawSettingsAction(screen, "rotate_normal", "Normal", x+16, y+150, 88, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "270"), Active: state.DisplayRotation == "270", Pending: rotateState.Pending && rotateState.PendingChoice == "270"})
-	a.drawSettingsAction(screen, "rotate_inverted", "Inverted", x+116, y+150, 98, settingsActionVisual{Enabled: state.DisplayRotation != "" && (!rotateState.Pending || rotateState.PendingChoice == "90"), Active: state.DisplayRotation == "90", Pending: rotateState.Pending && rotateState.PendingChoice == "90"})
+	a.drawSettingsAction(screen, "rotate_normal", "Normal", x+16, y+150, 88, settingsActionVisual{Enabled: state.State.DisplayRotation != session.DisplayRotationUnknown && (!rotateState.Pending || rotateState.PendingChoice == "270"), Active: state.State.DisplayRotation == session.DisplayRotationNormal, Pending: rotateState.Pending && rotateState.PendingChoice == "270"})
+	a.drawSettingsAction(screen, "rotate_inverted", "Inverted", x+116, y+150, 98, settingsActionVisual{Enabled: state.State.DisplayRotation != session.DisplayRotationUnknown && (!rotateState.Pending || rotateState.PendingChoice == "90"), Active: state.State.DisplayRotation == session.DisplayRotationInverted, Pending: rotateState.Pending && rotateState.PendingChoice == "90"})
 	a.drawSettingsActionStatus(screen, settingsGroupDisplayRotate, x+16, y+188, leftW-32)
-	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.USBEmulation), rightX+16, y+50, 112)
-	drawSettingsKeyValue(screen, "USB Config", state.USBConfig, rightX+16, y+76, 112)
+	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.State.USBEmulation), rightX+16, y+50, 112)
+	drawSettingsKeyValue(screen, "USB Config", usbConfigLabel(state.State.USBConfig), rightX+16, y+76, 112)
 	drawSettingsSectionLabel(screen, "Configured devices", rightX+16, y+108)
-	drawWrappedText(screen, state.USBDevicesSummary, rightX+16, y+126, rightW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
-	if state.USBEmulation != nil {
+	drawWrappedText(screen, usbDevicesSummary(state.State.USBDeviceCount), rightX+16, y+126, rightW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	if state.State.USBEmulation != nil {
 		usbState := a.settingsAction(settingsGroupUSBEmulation)
-		a.drawSettingsAction(screen, "usb_emulation_on", "USB On", rightX+16, y+150, 86, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "on", Active: *state.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "on"})
-		a.drawSettingsAction(screen, "usb_emulation_off", "USB Off", rightX+114, y+150, 92, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "off", Active: !*state.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "off"})
+		a.drawSettingsAction(screen, "usb_emulation_on", "USB On", rightX+16, y+150, 86, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "on", Active: *state.State.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "on"})
+		a.drawSettingsAction(screen, "usb_emulation_off", "USB Off", rightX+114, y+150, 92, settingsActionVisual{Enabled: !usbState.Pending || usbState.PendingChoice == "off", Active: !*state.State.USBEmulation, Pending: usbState.Pending && usbState.PendingChoice == "off"})
 		a.drawSettingsActionStatus(screen, settingsGroupUSBEmulation, rightX+16, y+188, rightW-32)
 	}
 	if state.Error != "" {
@@ -1176,16 +1132,16 @@ func (a *App) drawSettingsAccess(screen *ebiten.Image, x, y, w float64) {
 		drawText(screen, "Loading access state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
 	}
-	drawSettingsKeyValue(screen, "Connected", boolWord(state.CloudConnected), x+16, y+50, 96)
+	drawSettingsKeyValue(screen, "Connected", boolWord(state.State.Cloud.Connected), x+16, y+50, 96)
 	drawSettingsSectionLabel(screen, "Cloud API", x+16, y+84)
-	drawWrappedText(screen, fallbackLabel(state.CloudURL, "Unavailable"), x+16, y+102, leftW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawWrappedText(screen, fallbackLabel(state.State.Cloud.URL, "Unavailable"), x+16, y+102, leftW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	drawSettingsSectionLabel(screen, "Cloud App", x+16, y+138)
-	drawWrappedText(screen, fallbackLabel(state.CloudAppURL, "Unavailable"), x+16, y+156, leftW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
-	drawSettingsKeyValue(screen, "Mode", state.TLSMode, rightX+16, y+50, 70)
+	drawWrappedText(screen, fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), x+16, y+156, leftW-32, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	drawSettingsKeyValue(screen, "Mode", string(state.State.TLS), rightX+16, y+50, 70)
 	drawWrappedText(screen, "Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", rightX+16, y+84, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	tlsState := a.settingsAction(settingsGroupTLSMode)
-	a.drawSettingsAction(screen, "tls_disabled", "Disabled", rightX+16, y+150, 92, settingsActionVisual{Enabled: state.TLSMode != "" && (!tlsState.Pending || tlsState.PendingChoice == "disabled"), Active: state.TLSMode == "disabled", Pending: tlsState.Pending && tlsState.PendingChoice == "disabled"})
-	a.drawSettingsAction(screen, "tls_self_signed", "Self-Signed", rightX+120, y+150, 114, settingsActionVisual{Enabled: state.TLSMode != "" && (!tlsState.Pending || tlsState.PendingChoice == "self-signed"), Active: state.TLSMode == "self-signed", Pending: tlsState.Pending && tlsState.PendingChoice == "self-signed"})
+	a.drawSettingsAction(screen, "tls_disabled", "Disabled", rightX+16, y+150, 92, settingsActionVisual{Enabled: state.State.TLS != session.TLSModeUnknown && (!tlsState.Pending || tlsState.PendingChoice == "disabled"), Active: state.State.TLS == session.TLSModeDisabled, Pending: tlsState.Pending && tlsState.PendingChoice == "disabled"})
+	a.drawSettingsAction(screen, "tls_self_signed", "Self-Signed", rightX+120, y+150, 114, settingsActionVisual{Enabled: state.State.TLS != session.TLSModeUnknown && (!tlsState.Pending || tlsState.PendingChoice == "self-signed"), Active: state.State.TLS == session.TLSModeSelfSigned, Pending: tlsState.Pending && tlsState.PendingChoice == "self-signed"})
 	a.drawSettingsActionStatus(screen, settingsGroupTLSMode, rightX+16, y+188, rightW-32)
 	if state.Error != "" {
 		drawWrappedText(screen, state.Error, x+16, y+192, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
@@ -1202,9 +1158,9 @@ func (a *App) drawSettingsNetwork(screen *ebiten.Image, x, y, w float64) {
 		drawText(screen, "Loading network state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
 	}
-	drawSettingsKeyValue(screen, "Hostname", state.Hostname, x+16, y+48, 96)
-	drawSettingsKeyValue(screen, "IP", state.IP, x+16, y+74, 96)
-	drawSettingsKeyValue(screen, "DHCP", boolPtrWord(state.DHCP), x+16, y+100, 96)
+	drawSettingsKeyValue(screen, "Hostname", state.State.Hostname, x+16, y+48, 96)
+	drawSettingsKeyValue(screen, "IP", state.State.IP, x+16, y+74, 96)
+	drawSettingsKeyValue(screen, "DHCP", boolPtrWord(state.State.DHCP), x+16, y+100, 96)
 	if state.Error != "" {
 		drawWrappedText(screen, state.Error, x+16, y+124, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
 	}
@@ -1220,10 +1176,10 @@ func (a *App) drawSettingsAdvanced(screen *ebiten.Image, x, y, w float64) {
 		drawText(screen, "Loading advanced state…", x+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		return
 	}
-	drawSettingsKeyValue(screen, "Developer Mode", boolPtrWord(state.DevMode), x+16, y+48, 128)
-	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.USBEmulation), x+16, y+74, 128)
-	drawSettingsKeyValue(screen, "App Version", state.AppVersion, x+16, y+106, 128)
-	drawSettingsKeyValue(screen, "System Version", state.SystemVersion, x+16, y+132, 128)
+	drawSettingsKeyValue(screen, "Developer Mode", boolPtrWord(state.State.DevMode), x+16, y+48, 128)
+	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.State.USBEmulation), x+16, y+74, 128)
+	drawSettingsKeyValue(screen, "App Version", state.State.Version.AppVersion, x+16, y+106, 128)
+	drawSettingsKeyValue(screen, "System Version", state.State.Version.SystemVersion, x+16, y+132, 128)
 	if state.Error != "" {
 		drawWrappedText(screen, state.Error, x+16, y+156, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
 	}
@@ -1250,11 +1206,11 @@ func (a *App) drawSettingsAppearance(screen *ebiten.Image, x, y, w float64) {
 		{id: "chrome_anchor:bottom_right", label: "Bottom Right", value: "bottom_right", x: x + 274, y: y + 154, w: 118},
 	}
 	for _, option := range positionOptions {
-		a.drawSettingsAction(screen, option.id, option.label, option.x, option.y, option.w, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == option.value})
+		a.drawSettingsAction(screen, option.id, option.label, option.x, option.y, option.w, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor.String() == option.value})
 	}
 	drawSettingsSectionLabel(screen, "Layout", x+16, y+206)
-	a.drawSettingsAction(screen, "chrome_layout:horizontal", "Horizontal", x+136, y+194, 112, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == "horizontal"})
-	a.drawSettingsAction(screen, "chrome_layout:vertical", "Vertical", x+260, y+194, 96, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == "vertical"})
+	a.drawSettingsAction(screen, "chrome_layout:horizontal", "Horizontal", x+136, y+194, 112, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutHorizontal})
+	a.drawSettingsAction(screen, "chrome_layout:vertical", "Vertical", x+260, y+194, 96, settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutVertical})
 	drawSettingsSectionLabel(screen, "Window", x+16, y+248)
 	a.drawSettingsAction(screen, "fullscreen", "Toggle Fullscreen", x+136, y+236, 160, settingsActionVisual{Enabled: true, Active: ebiten.IsFullscreen()})
 	drawWrappedText(screen, "Position chooses where the chrome sits on screen. Layout changes whether the control buttons run across or down.", x+16, y+280, w-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
@@ -1272,6 +1228,17 @@ func boolPtrWord(v *bool) string {
 		return "Unavailable"
 	}
 	return boolWord(*v)
+}
+
+func usbConfigLabel(cfg session.USBConfig) string {
+	if cfg == (session.USBConfig{}) {
+		return ""
+	}
+	return fmt.Sprintf("%s / %s", cfg.VendorID, cfg.ProductID)
+}
+
+func usbDevicesSummary(count int) string {
+	return fmt.Sprintf("%d configured classes", count)
 }
 
 func (a *App) drawSettingsPlanned(screen *ebiten.Image, section settingsSectionDef, x, y, w float64) {

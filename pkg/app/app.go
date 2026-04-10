@@ -16,11 +16,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/discovery"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
 type Config struct {
@@ -93,9 +95,9 @@ type App struct {
 	sectionLoadSeq         map[settingsSection]uint64
 	mediaView              mediaView
 	mediaURL               string
-	mediaMode              string
+	mediaMode              virtualmedia.Mode
 	mediaURLFocused        bool
-	mediaState             *mediaStateSnapshot
+	mediaState             *virtualmedia.State
 	mediaFiles             []mediaFileRow
 	mediaSpace             mediaSpaceSnapshot
 	mediaSelectedFile      string
@@ -119,21 +121,23 @@ type statsPoint struct {
 	FramesPerSecond float64
 }
 
-type launcherMode string
+//go:generate go tool github.com/dmarkham/enumer -type=launcherMode,settingsActionGroup,mediaView -linecomment -json -text -output app_enums.go
+
+type launcherMode uint8
 
 const (
-	launcherModeBrowse   launcherMode = "browse"
-	launcherModePassword launcherMode = "password"
+	launcherModeBrowse   launcherMode = iota // browse
+	launcherModePassword                     // password
 )
 
-type settingsActionGroup string
+type settingsActionGroup uint8
 
 const (
-	settingsGroupKeyboardLayout settingsActionGroup = "keyboard_layout"
-	settingsGroupVideoQuality   settingsActionGroup = "video_quality"
-	settingsGroupTLSMode        settingsActionGroup = "tls_mode"
-	settingsGroupDisplayRotate  settingsActionGroup = "display_rotation"
-	settingsGroupUSBEmulation   settingsActionGroup = "usb_emulation"
+	settingsGroupKeyboardLayout settingsActionGroup = iota // keyboard_layout
+	settingsGroupVideoQuality                              // video_quality
+	settingsGroupTLSMode                                   // tls_mode
+	settingsGroupDisplayRotate                             // display_rotation
+	settingsGroupUSBEmulation                              // usb_emulation
 )
 
 type settingsActionState struct {
@@ -143,22 +147,14 @@ type settingsActionState struct {
 	RequestSeq    uint64
 }
 
-type mediaView string
+type mediaView uint8
 
 const (
-	mediaViewHome    mediaView = "home"
-	mediaViewURL     mediaView = "url"
-	mediaViewStorage mediaView = "storage"
-	mediaViewUpload  mediaView = "upload"
+	mediaViewHome    mediaView = iota // home
+	mediaViewURL                      // url
+	mediaViewStorage                  // storage
+	mediaViewUpload                   // upload
 )
-
-type mediaStateSnapshot struct {
-	Source   string
-	Mode     string
-	Filename string
-	URL      string
-	Size     int64
-}
 
 type mediaFileRow struct {
 	Filename  string
@@ -192,7 +188,7 @@ func New(cfg Config) (*App, error) {
 		settingsActions: make(map[settingsActionGroup]settingsActionState),
 		sectionLoadSeq:  make(map[settingsSection]uint64),
 		mediaView:       mediaViewHome,
-		mediaMode:       "CDROM",
+		mediaMode:       virtualmedia.ModeCDROM,
 	}, nil
 }
 
@@ -969,34 +965,34 @@ func (a *App) invokeAction(id string) {
 		a.prefs.PinChrome = false
 		a.savePreferences()
 	case "chrome_anchor:top_left":
-		a.prefs.ChromeAnchor = "top_left"
+		a.prefs.ChromeAnchor = chromeAnchorTopLeft
 		a.savePreferences()
 	case "chrome_anchor:top_center":
-		a.prefs.ChromeAnchor = "top_center"
+		a.prefs.ChromeAnchor = chromeAnchorTopCenter
 		a.savePreferences()
 	case "chrome_anchor:top_right":
-		a.prefs.ChromeAnchor = "top_right"
+		a.prefs.ChromeAnchor = chromeAnchorTopRight
 		a.savePreferences()
 	case "chrome_anchor:left_center":
-		a.prefs.ChromeAnchor = "left_center"
+		a.prefs.ChromeAnchor = chromeAnchorLeftCenter
 		a.savePreferences()
 	case "chrome_anchor:right_center":
-		a.prefs.ChromeAnchor = "right_center"
+		a.prefs.ChromeAnchor = chromeAnchorRightCenter
 		a.savePreferences()
 	case "chrome_anchor:bottom_left":
-		a.prefs.ChromeAnchor = "bottom_left"
+		a.prefs.ChromeAnchor = chromeAnchorBottomLeft
 		a.savePreferences()
 	case "chrome_anchor:bottom_center":
-		a.prefs.ChromeAnchor = "bottom_center"
+		a.prefs.ChromeAnchor = chromeAnchorBottomCenter
 		a.savePreferences()
 	case "chrome_anchor:bottom_right":
-		a.prefs.ChromeAnchor = "bottom_right"
+		a.prefs.ChromeAnchor = chromeAnchorBottomRight
 		a.savePreferences()
 	case "chrome_layout:horizontal":
-		a.prefs.ChromeLayout = "horizontal"
+		a.prefs.ChromeLayout = chromeLayoutHorizontal
 		a.savePreferences()
 	case "chrome_layout:vertical":
-		a.prefs.ChromeLayout = "vertical"
+		a.prefs.ChromeLayout = chromeLayoutVertical
 		a.savePreferences()
 	case "fullscreen":
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
@@ -1005,7 +1001,7 @@ func (a *App) invokeAction(id string) {
 			return
 		}
 		a.withSettingsAction(settingsGroupTLSMode, "disabled", func() error {
-			if err := a.ctrl.SetTLSMode("disabled"); err != nil {
+			if err := a.ctrl.SetTLSMode(session.TLSModeDisabled); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionAccess)
@@ -1015,7 +1011,7 @@ func (a *App) invokeAction(id string) {
 			return
 		}
 		a.withSettingsAction(settingsGroupTLSMode, "self-signed", func() error {
-			if err := a.ctrl.SetTLSMode("self-signed"); err != nil {
+			if err := a.ctrl.SetTLSMode(session.TLSModeSelfSigned); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionAccess)
@@ -1025,7 +1021,7 @@ func (a *App) invokeAction(id string) {
 			return
 		}
 		a.withSettingsAction(settingsGroupDisplayRotate, "270", func() error {
-			if err := a.ctrl.SetDisplayRotation("270"); err != nil {
+			if err := a.ctrl.SetDisplayRotation(session.DisplayRotationNormal); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
@@ -1035,7 +1031,7 @@ func (a *App) invokeAction(id string) {
 			return
 		}
 		a.withSettingsAction(settingsGroupDisplayRotate, "90", func() error {
-			if err := a.ctrl.SetDisplayRotation("90"); err != nil {
+			if err := a.ctrl.SetDisplayRotation(session.DisplayRotationInverted); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
@@ -1082,7 +1078,11 @@ func (a *App) invokeAction(id string) {
 			return
 		}
 		if len(id) > 8 && id[:8] == "section:" {
-			a.settingsSection = settingsSection(id[8:])
+			section, ok := parseSettingsSection(id[8:])
+			if !ok {
+				return
+			}
+			a.settingsSection = section
 			a.refreshSettingsSection(a.settingsSection)
 		}
 	}
@@ -1185,7 +1185,7 @@ func (a *App) syncWindowTitle() {
 	} else if snap.Hostname != "" {
 		title = snap.Hostname
 	}
-	title = fmt.Sprintf("%s [%s]", title, snap.Phase)
+	title = fmt.Sprintf("%s [%s]", title, snap.Phase.String())
 	if title == a.lastTitle {
 		return
 	}
@@ -1336,16 +1336,15 @@ func (a *App) drawPressedKeysOverlay(screen *ebiten.Image) {
 	drawText(screen, line, x+10, y+8, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 }
 
-func rtcLabel(state interface{}) string {
-	return fmt.Sprint(state)
+func rtcLabel(state webrtc.PeerConnectionState) string {
+	return state.String()
 }
 
-func signalingLabel(mode interface{}) string {
-	label := fmt.Sprint(mode)
-	if label == "" {
+func signalingLabel(mode client.SignalingMode) string {
+	if mode == client.SignalingModeUnknown {
 		return "pending"
 	}
-	return label
+	return mode.String()
 }
 
 func trimForFooter(value string) string {
@@ -1353,13 +1352,6 @@ func trimForFooter(value string) string {
 		return value
 	}
 	return value[:39] + "..."
-}
-
-func (a *App) mouseModeLabel() string {
-	if a.relative {
-		return "relative"
-	}
-	return "absolute"
 }
 
 type rect struct {
@@ -1385,13 +1377,6 @@ func (r rect) toHID(cursorX, cursorY int) (int32, int32) {
 	relX := clamp((float64(cursorX)-r.x)/r.w, 0, 1)
 	relY := clamp((float64(cursorY)-r.y)/r.h, 0, 1)
 	return int32(relX * 32767.0), int32(relY * 32767.0)
-}
-
-type button struct {
-	id      string
-	label   string
-	enabled bool
-	rect    rect
 }
 
 func reconnectLabel(phase session.Phase) string {
@@ -1529,11 +1514,4 @@ func (a *App) connectTo(target string) {
 	if a.ctx != nil {
 		a.ctrl.Start(a.ctx)
 	}
-}
-
-func mouseButtonLabel(relative bool) string {
-	if relative {
-		return "Mouse: Relative"
-	}
-	return "Mouse: Absolute"
 }

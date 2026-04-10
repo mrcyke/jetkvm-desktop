@@ -43,7 +43,7 @@ func TestLiveControllerConnectsAndForwardsSafeInput(t *testing.T) {
 		t.Fatal("expected video to be ready in controller snapshot")
 	}
 	if snapshot.SignalingMode != client.SignalingModeWebSocket {
-		t.Fatalf("expected websocket signaling mode, got %q", snapshot.SignalingMode)
+		t.Fatalf("expected websocket signaling mode, got %v", snapshot.SignalingMode)
 	}
 
 	if err := controller.SendKeypress(4, true); err != nil {

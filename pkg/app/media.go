@@ -18,15 +18,6 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
-type mediaProgressValue = virtualmedia.UploadProgress
-
-func mediaModeValue(mode string) virtualmedia.Mode {
-	if strings.EqualFold(mode, string(virtualmedia.ModeDisk)) {
-		return virtualmedia.ModeDisk
-	}
-	return virtualmedia.ModeCDROM
-}
-
 func (a *App) openMediaOverlay() {
 	if a.ctrl == nil || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
@@ -58,10 +49,6 @@ func (a *App) refreshMediaData() {
 	})
 }
 
-func (a *App) refreshMediaStorage() {
-	a.refreshMediaData()
-}
-
 func (a *App) reloadMediaData() error {
 	if a.ctrl == nil {
 		return fmt.Errorf("client not connected")
@@ -91,27 +78,16 @@ func (a *App) reloadMediaData() error {
 		})
 	}
 
-	var snap *mediaStateSnapshot
-	if state != nil {
-		snap = &mediaStateSnapshot{
-			Source:   string(state.Source),
-			Mode:     string(state.Mode),
-			Filename: state.Filename,
-			URL:      state.URL,
-			Size:     state.Size,
-		}
-	}
-
 	a.mu.Lock()
-	a.mediaState = snap
+	a.mediaState = state
 	a.mediaFiles = fileRows
 	a.mediaSpace = mediaSpaceSnapshot{BytesUsed: space.BytesUsed, BytesFree: space.BytesFree}
 	a.mediaStorageLoaded = true
 	if a.mediaSelectedFile != "" && !a.mediaFileExistsLocked(a.mediaSelectedFile) {
 		a.mediaSelectedFile = ""
 	}
-	if a.mediaState != nil {
-		a.mediaMode = a.mediaState.Mode
+	if state != nil {
+		a.mediaMode = state.Mode
 	}
 	a.mu.Unlock()
 	return nil
@@ -188,7 +164,7 @@ func (a *App) invokeMediaAction(id string) bool {
 			a.mediaError = ""
 			a.mediaURLFocused = false
 			a.mediaUploadFocused = false
-			a.refreshMediaStorage()
+			a.refreshMediaData()
 		}
 		return true
 	case id == "media_view_upload":
@@ -197,14 +173,14 @@ func (a *App) invokeMediaAction(id string) bool {
 			a.mediaError = ""
 			a.mediaURLFocused = false
 			a.mediaUploadFocused = true
-			a.refreshMediaStorage()
+			a.refreshMediaData()
 		}
 		return true
 	case id == "media_mode_cdrom":
-		a.mediaMode = string(virtualmedia.ModeCDROM)
+		a.mediaMode = virtualmedia.ModeCDROM
 		return true
 	case id == "media_mode_disk":
-		a.mediaMode = string(virtualmedia.ModeDisk)
+		a.mediaMode = virtualmedia.ModeDisk
 		return true
 	case id == "media_focus_url":
 		a.mediaURLFocused = true
@@ -238,7 +214,7 @@ func (a *App) invokeMediaAction(id string) bool {
 			return true
 		}
 		targetURL := strings.TrimSpace(a.mediaURL)
-		mode := mediaModeValue(a.mediaMode)
+		mode := a.mediaMode
 		a.mediaLoading = true
 		a.mediaError = ""
 		a.runAsync(func() {
@@ -261,7 +237,7 @@ func (a *App) invokeMediaAction(id string) bool {
 			return true
 		}
 		filename := a.mediaSelectedFile
-		mode := mediaModeValue(a.mediaMode)
+		mode := a.mediaMode
 		a.mediaLoading = true
 		a.mediaError = ""
 		a.runAsync(func() {
@@ -342,9 +318,9 @@ func (a *App) invokeMediaAction(id string) bool {
 	case strings.HasPrefix(id, "media_select:"):
 		a.mediaSelectedFile = strings.TrimPrefix(id, "media_select:")
 		if strings.HasSuffix(strings.ToLower(a.mediaSelectedFile), ".img") {
-			a.mediaMode = string(virtualmedia.ModeDisk)
+			a.mediaMode = virtualmedia.ModeDisk
 		} else {
-			a.mediaMode = string(virtualmedia.ModeCDROM)
+			a.mediaMode = virtualmedia.ModeCDROM
 		}
 		return true
 	case strings.HasPrefix(id, "media_delete:"):
@@ -374,9 +350,9 @@ func (a *App) pickUploadFile() {
 	a.mediaUploadFocused = true
 	a.mediaURLFocused = false
 	if strings.HasSuffix(strings.ToLower(path), ".img") {
-		a.mediaMode = string(virtualmedia.ModeDisk)
+		a.mediaMode = virtualmedia.ModeDisk
 	} else {
-		a.mediaMode = string(virtualmedia.ModeCDROM)
+		a.mediaMode = virtualmedia.ModeCDROM
 	}
 }
 
@@ -437,8 +413,8 @@ func (a *App) drawMediaOverlay(screen *ebiten.Image, snap session.Snapshot) {
 		if label == "" {
 			label = a.mediaState.URL
 		}
-		drawSettingsKeyValue(screen, "Source", source, panelX+34, stateY+44, 74)
-		drawSettingsKeyValue(screen, "Mode", a.mediaState.Mode, panelX+34, stateY+70, 74)
+		drawSettingsKeyValue(screen, "Source", string(source), panelX+34, stateY+44, 74)
+		drawSettingsKeyValue(screen, "Mode", string(a.mediaState.Mode), panelX+34, stateY+70, 74)
 		drawWrappedText(screen, fallbackLabel(label, "Mounted media"), panelX+200, stateY+44, panelW-330, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		drawText(screen, humanBytes(a.mediaState.Size), panelX+200, stateY+78, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 		a.drawMediaButton(screen, chromeButton{
@@ -475,7 +451,7 @@ func (a *App) drawMediaOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	bodyX := panelX + 18
 	bodyY := tabY + 44
 	bodyW := panelW - 36
-	bodyH := panelH - (bodyY-panelY) - 18
+	bodyH := panelH - (bodyY - panelY) - 18
 	vector.DrawFilledRect(screen, float32(bodyX), float32(bodyY), float32(bodyW), float32(bodyH), color.RGBA{R: 14, G: 22, B: 32, A: 234}, false)
 	vector.StrokeRect(screen, float32(bodyX), float32(bodyY), float32(bodyW), float32(bodyH), 1, color.RGBA{R: 84, G: 104, B: 122, A: 110}, false)
 
@@ -513,8 +489,8 @@ func (a *App) drawMediaURLView(screen *ebiten.Image, x, y, w float64) {
 	drawWrappedText(screen, "Paste a direct ISO or IMG URL. The file stays remote; JetKVM streams it on demand.", x+18, y+46, w-36, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	a.drawMediaInput(screen, "media_focus_url", x+18, y+92, w-36, 38, a.mediaURL, "https://example.com/image.iso", a.mediaURLFocused)
 	drawSettingsSectionLabel(screen, "USB Mode", x+18, y+152)
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: true, active: a.mediaMode == string(virtualmedia.ModeCDROM), rect: rect{x: x + 108, y: y + 140, w: 90, h: 30}}, a.mediaMode == string(virtualmedia.ModeCDROM))
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: true, active: a.mediaMode == string(virtualmedia.ModeDisk), rect: rect{x: x + 210, y: y + 140, w: 72, h: 30}}, a.mediaMode == string(virtualmedia.ModeDisk))
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: true, active: a.mediaMode == virtualmedia.ModeCDROM, rect: rect{x: x + 108, y: y + 140, w: 90, h: 30}}, a.mediaMode == virtualmedia.ModeCDROM)
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: true, active: a.mediaMode == virtualmedia.ModeDisk, rect: rect{x: x + 210, y: y + 140, w: 72, h: 30}}, a.mediaMode == virtualmedia.ModeDisk)
 	a.drawMediaButton(screen, chromeButton{id: "media_mount_url", label: "Mount URL", enabled: a.canMountMediaURL(), rect: rect{x: x + 18, y: y + 192, w: 114, h: 34}}, false)
 	if strings.TrimSpace(a.mediaURL) != "" && !isValidMediaURL(a.mediaURL) {
 		drawText(screen, "Enter a valid absolute URL.", x+18, y+240, 12, color.RGBA{R: 252, G: 165, B: 165, A: 255})
@@ -554,8 +530,8 @@ func (a *App) drawMediaStorageView(screen *ebiten.Image, x, y, w, h float64) {
 		drawText(screen, "No stored images yet.", x+18, listY+12, 14, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	}
 	drawSettingsSectionLabel(screen, "USB Mode", x+18, y+h-106)
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: true, active: a.mediaMode == string(virtualmedia.ModeCDROM), rect: rect{x: x + 108, y: y + h - 118, w: 90, h: 30}}, a.mediaMode == string(virtualmedia.ModeCDROM))
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: true, active: a.mediaMode == string(virtualmedia.ModeDisk), rect: rect{x: x + 210, y: y + h - 118, w: 72, h: 30}}, a.mediaMode == string(virtualmedia.ModeDisk))
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: true, active: a.mediaMode == virtualmedia.ModeCDROM, rect: rect{x: x + 108, y: y + h - 118, w: 90, h: 30}}, a.mediaMode == virtualmedia.ModeCDROM)
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: true, active: a.mediaMode == virtualmedia.ModeDisk, rect: rect{x: x + 210, y: y + h - 118, w: 72, h: 30}}, a.mediaMode == virtualmedia.ModeDisk)
 	a.drawMediaButton(screen, chromeButton{id: "media_mount_storage", label: "Mount Selected", enabled: a.canMountSelectedStorageFile(), rect: rect{x: x + w - 162, y: y + h - 122, w: 128, h: 34}}, false)
 	drawText(screen, fmt.Sprintf("Used %s  Free %s", humanBytes(a.mediaSpace.BytesUsed), humanBytes(a.mediaSpace.BytesFree)), x+18, y+h-62, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
@@ -566,8 +542,8 @@ func (a *App) drawMediaUploadView(screen *ebiten.Image, x, y, w float64) {
 	a.drawMediaInput(screen, "media_focus_upload", x+18, y+96, w-156, 38, a.mediaUploadPath, "/path/to/image.iso", a.mediaUploadFocused)
 	a.drawMediaButton(screen, chromeButton{id: "media_browse_upload", label: "Browse", enabled: !a.mediaUploading, rect: rect{x: x + w - 126, y: y + 96, w: 108, h: 38}}, false)
 	drawSettingsSectionLabel(screen, "Mount Mode", x+18, y+162)
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: !a.mediaUploading, active: a.mediaMode == string(virtualmedia.ModeCDROM), rect: rect{x: x + 108, y: y + 150, w: 90, h: 30}}, a.mediaMode == string(virtualmedia.ModeCDROM))
-	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: !a.mediaUploading, active: a.mediaMode == string(virtualmedia.ModeDisk), rect: rect{x: x + 210, y: y + 150, w: 72, h: 30}}, a.mediaMode == string(virtualmedia.ModeDisk))
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: !a.mediaUploading, active: a.mediaMode == virtualmedia.ModeCDROM, rect: rect{x: x + 108, y: y + 150, w: 90, h: 30}}, a.mediaMode == virtualmedia.ModeCDROM)
+	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: !a.mediaUploading, active: a.mediaMode == virtualmedia.ModeDisk, rect: rect{x: x + 210, y: y + 150, w: 72, h: 30}}, a.mediaMode == virtualmedia.ModeDisk)
 	a.drawMediaButton(screen, chromeButton{id: "media_start_upload", label: "Start Upload", enabled: !a.mediaUploading && strings.TrimSpace(a.mediaUploadPath) != "", rect: rect{x: x + 18, y: y + 206, w: 118, h: 34}}, false)
 	if a.mediaUploadTotal > 0 {
 		barY := y + 264.0

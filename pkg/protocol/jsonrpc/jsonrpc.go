@@ -12,10 +12,10 @@ const Version = "2.0"
 var ErrUnknownMessage = errors.New("unknown JSON-RPC message shape")
 
 type Request struct {
-	JSONRPC string         `json:"jsonrpc"`
-	Method  string         `json:"method"`
-	Params  map[string]any `json:"params,omitempty"`
-	ID      any            `json:"id,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
+	ID      any    `json:"id,omitempty"`
 }
 
 type Response struct {
@@ -37,9 +37,9 @@ type RPCError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-func NewRequest(method string, params map[string]any, id any) Request {
+func NewRequest(method string, params any, id any) Request {
 	if params == nil {
-		params = map[string]any{}
+		params = struct{}{}
 	}
 	return Request{
 		JSONRPC: Version,

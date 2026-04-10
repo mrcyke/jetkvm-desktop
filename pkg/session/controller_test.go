@@ -37,7 +37,7 @@ func TestControllerConnects(t *testing.T) {
 		t.Fatal("expected HID to be ready")
 	}
 	if snapshot.SignalingMode != client.SignalingModeWebSocket {
-		t.Fatalf("expected websocket signaling mode, got %q", snapshot.SignalingMode)
+		t.Fatalf("expected websocket signaling mode, got %v", snapshot.SignalingMode)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestControllerReconnectsAfterDisconnect(t *testing.T) {
 	defer controller.Stop()
 
 	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
-	if err := controller.call(context.Background(), "forceDisconnect", nil, nil); err != nil {
+	if err := controller.forceDisconnect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
@@ -368,7 +368,7 @@ func waitForPhase(t *testing.T, controller *Controller, phase Phase, timeout tim
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for phase %s, got %+v", phase, controller.Snapshot())
+	t.Fatalf("timed out waiting for phase %v, got %+v", phase, controller.Snapshot())
 }
 
 func waitForFrame(t *testing.T, controller *Controller, timeout time.Duration) {
