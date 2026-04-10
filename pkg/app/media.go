@@ -461,7 +461,7 @@ func (a *App) drawMediaOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	case mediaViewStorage:
 		a.drawMediaStorageView(screen, bodyX, bodyY, bodyW, bodyH)
 	case mediaViewUpload:
-		a.drawMediaUploadView(screen, bodyX, bodyY, bodyW)
+		a.drawMediaUploadView(screen, bodyX, bodyY, bodyW, bodyH)
 	default:
 		a.drawMediaHomeView(screen, bodyX, bodyY, bodyW, snap)
 	}
@@ -536,7 +536,7 @@ func (a *App) drawMediaStorageView(screen *ebiten.Image, x, y, w, h float64) {
 	drawText(screen, fmt.Sprintf("Used %s  Free %s", humanBytes(a.mediaSpace.BytesUsed), humanBytes(a.mediaSpace.BytesFree)), x+18, y+h-62, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 }
 
-func (a *App) drawMediaUploadView(screen *ebiten.Image, x, y, w float64) {
+func (a *App) drawMediaUploadView(screen *ebiten.Image, x, y, w, h float64) {
 	drawText(screen, "Upload Image", x+18, y+18, 18, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 	drawWrappedText(screen, "Pick a local ISO or IMG file and upload it into JetKVM storage. The same device storage browser can mount it afterward.", x+18, y+46, w-36, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	a.drawMediaInput(screen, "media_focus_upload", x+18, y+96, w-156, 38, a.mediaUploadPath, "/path/to/image.iso", a.mediaUploadFocused)
@@ -545,18 +545,27 @@ func (a *App) drawMediaUploadView(screen *ebiten.Image, x, y, w float64) {
 	a.drawMediaButton(screen, chromeButton{id: "media_mode_cdrom", label: "CD/DVD", enabled: !a.mediaUploading, active: a.mediaMode == virtualmedia.ModeCDROM, rect: rect{x: x + 108, y: y + 150, w: 90, h: 30}}, a.mediaMode == virtualmedia.ModeCDROM)
 	a.drawMediaButton(screen, chromeButton{id: "media_mode_disk", label: "Disk", enabled: !a.mediaUploading, active: a.mediaMode == virtualmedia.ModeDisk, rect: rect{x: x + 210, y: y + 150, w: 72, h: 30}}, a.mediaMode == virtualmedia.ModeDisk)
 	a.drawMediaButton(screen, chromeButton{id: "media_start_upload", label: "Start Upload", enabled: !a.mediaUploading && strings.TrimSpace(a.mediaUploadPath) != "", rect: rect{x: x + 18, y: y + 206, w: 118, h: 34}}, false)
+
+	selectedY := y + h - 30
 	if a.mediaUploadTotal > 0 {
-		barY := y + 264.0
+		barY := y + h - 82
 		vector.FillRect(screen, float32(x+18), float32(barY), float32(w-36), 18, color.RGBA{R: 22, G: 30, B: 44, A: 255}, false)
 		vector.FillRect(screen, float32(x+18), float32(barY), float32((w-36)*a.mediaUploadProgress), 18, color.RGBA{R: 48, G: 123, B: 206, A: 255}, false)
 		vector.StrokeRect(screen, float32(x+18), float32(barY), float32(w-36), 18, 1, color.RGBA{R: 84, G: 104, B: 122, A: 110}, false)
-		drawText(screen, fmt.Sprintf("%s / %s", humanBytes(a.mediaUploadSent), humanBytes(a.mediaUploadTotal)), x+18, y+292, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+		metaY := barY + 28
+		drawText(screen, fmt.Sprintf("%s / %s", humanBytes(a.mediaUploadSent), humanBytes(a.mediaUploadTotal)), x+18, metaY, 12, color.RGBA{R: 236, G: 241, B: 245, A: 255})
 		if a.mediaUploadSpeed > 0 {
-			drawText(screen, fmt.Sprintf("%s/s", humanBytes(int64(a.mediaUploadSpeed))), x+200, y+292, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+			speedLabel := fmt.Sprintf("%s/s", humanBytes(int64(a.mediaUploadSpeed)))
+			etaLabel := mediaUploadETA(a.mediaUploadSent, a.mediaUploadTotal, a.mediaUploadSpeed)
+			if etaLabel != "" {
+				speedLabel += "  ETA " + etaLabel
+			}
+			drawText(screen, speedLabel, x+200, metaY, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 		}
 	}
 	if strings.TrimSpace(a.mediaUploadPath) != "" {
-		drawText(screen, "Selected: "+filepath.Base(a.mediaUploadPath), x+18, y+330, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+		selected := "Selected: " + filepath.Base(a.mediaUploadPath)
+		drawText(screen, trimTextToWidth(selected, w-36, 12), x+18, selectedY, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	}
 }
 
@@ -615,4 +624,43 @@ func humanBytes(value int64) string {
 		}
 	}
 	return fmt.Sprintf("%.1f PB", v/1024)
+}
+
+func trimTextToWidth(value string, width, size float64) string {
+	if value == "" || textFits(value, width, size) {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= 3 {
+		return value
+	}
+	left := len(runes) / 2
+	right := left
+	best := "..."
+	for left > 0 && right < len(runes) {
+		candidate := string(runes[:left]) + "..." + string(runes[right:])
+		if textFits(candidate, width, size) {
+			best = candidate
+			left--
+			right++
+			continue
+		}
+		break
+	}
+	return best
+}
+
+func mediaUploadETA(sent, total int64, bytesPerS float64) string {
+	if total <= sent || bytesPerS <= 0 {
+		return ""
+	}
+	remainingSeconds := int64(float64(total-sent) / bytesPerS)
+	switch {
+	case remainingSeconds < 60:
+		return fmt.Sprintf("%ds", remainingSeconds)
+	case remainingSeconds < 3600:
+		return fmt.Sprintf("%dm %02ds", remainingSeconds/60, remainingSeconds%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", remainingSeconds/3600, (remainingSeconds%3600)/60)
+	}
 }
