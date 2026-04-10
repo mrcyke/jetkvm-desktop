@@ -116,6 +116,7 @@ func (c Column) Draw(ctx *Context, bounds Rect) {
 type Row struct {
 	Children []Child
 	Spacing  float64
+	AlignY   Alignment
 }
 
 func (r Row) Measure(ctx *Context, constraints Constraints) Size {
@@ -194,7 +195,18 @@ func (r Row) Draw(ctx *Context, bounds Rect) {
 		if child.Flex > 0 && totalFlex > 0 {
 			width = remaining * (child.Flex / totalFlex)
 		}
-		childBounds := Rect{X: x, Y: bounds.Y, W: width, H: bounds.H}
+		size := child.Element.Measure(ctx, Constraints{MaxW: width, MaxH: bounds.H})
+		height := bounds.H
+		y := bounds.Y
+		switch r.AlignY {
+		case AlignCenter:
+			height = min(size.H, bounds.H)
+			y += (bounds.H - height) / 2
+		case AlignEnd:
+			height = min(size.H, bounds.H)
+			y += bounds.H - height
+		}
+		childBounds := Rect{X: x, Y: y, W: width, H: height}
 		child.Element.Draw(ctx, childBounds)
 		x += width
 	}

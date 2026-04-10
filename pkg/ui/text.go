@@ -39,7 +39,7 @@ func DrawText(dst *ebiten.Image, value string, x, y, size float64, clr color.Col
 		return
 	}
 	op := &ebitentext.DrawOptions{}
-	op.GeoM.Translate(x, y+fontFace.Metrics().HAscent)
+	op.GeoM.Translate(x, y)
 	op.ColorScale.ScaleWithColor(clr)
 	ebitentext.Draw(dst, value, fontFace, op)
 }

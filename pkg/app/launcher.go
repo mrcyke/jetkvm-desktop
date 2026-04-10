@@ -255,8 +255,13 @@ type launcherDevicePanelElement struct {
 	device discovery.Device
 }
 
-func (launcherDevicePanelElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
-	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: 54})
+func (e launcherDevicePanelElement) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	return ui.Panel{
+		Fill:   color.RGBA{R: 20, G: 31, B: 46, A: 255},
+		Stroke: color.RGBA{R: 56, G: 189, B: 248, A: 80},
+		Insets: ui.SymmetricInsets(16, 12),
+		Child:  launcherDeviceRowElement{device: e.device},
+	}.Measure(ctx, constraints)
 }
 
 func (e launcherDevicePanelElement) Draw(ctx *ui.Context, bounds ui.Rect) {
@@ -273,8 +278,24 @@ type launcherDeviceRowElement struct {
 	device discovery.Device
 }
 
-func (launcherDeviceRowElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
-	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: 54})
+func (e launcherDeviceRowElement) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	state := "Configured"
+	if !e.device.IsSetup {
+		state = "Needs setup"
+	}
+	return ui.Row{
+		AlignY: ui.AlignCenter,
+		Children: []ui.Child{
+			ui.Flex(ui.Column{
+				Children: []ui.Child{
+					ui.Fixed(ui.Label{Text: e.device.Name, Size: 17}),
+					ui.Fixed(ui.Spacer{H: 8}),
+					ui.Fixed(ui.Label{Text: e.device.BaseURL, Size: 13}),
+				},
+			}, 1),
+			ui.Fixed(ui.Label{Text: state, Size: 13}),
+		},
+	}.Measure(ctx, constraints)
 }
 
 func (e launcherDeviceRowElement) Draw(ctx *ui.Context, bounds ui.Rect) {
@@ -283,21 +304,16 @@ func (e launcherDeviceRowElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		state = "Needs setup"
 	}
 	ui.Row{
+		AlignY: ui.AlignCenter,
 		Children: []ui.Child{
-			ui.Flex(ui.Align{
-				Vertical: ui.AlignCenter,
-				Child: ui.Column{
-					Children: []ui.Child{
-						ui.Fixed(ui.Label{Text: e.device.Name, Size: 17, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
-						ui.Fixed(ui.Spacer{H: 8}),
-						ui.Fixed(ui.Label{Text: e.device.BaseURL, Size: 13, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
-					},
+			ui.Flex(ui.Column{
+				Children: []ui.Child{
+					ui.Fixed(ui.Label{Text: e.device.Name, Size: 17, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
+					ui.Fixed(ui.Spacer{H: 8}),
+					ui.Fixed(ui.Label{Text: e.device.BaseURL, Size: 13, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
 				},
 			}, 1),
-			ui.Fixed(ui.Align{
-				Vertical: ui.AlignCenter,
-				Child:    ui.Label{Text: state, Size: 13, Color: color.RGBA{R: 191, G: 219, B: 254, A: 255}},
-			}),
+			ui.Fixed(ui.Label{Text: state, Size: 13, Color: color.RGBA{R: 191, G: 219, B: 254, A: 255}}),
 		},
 	}.Draw(ctx, bounds)
 }
@@ -372,7 +388,7 @@ type launcherPasswordFieldElement struct {
 }
 
 func (launcherPasswordFieldElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
-	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: 72})
+	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: 38})
 }
 
 func (e launcherPasswordFieldElement) Draw(ctx *ui.Context, bounds ui.Rect) {

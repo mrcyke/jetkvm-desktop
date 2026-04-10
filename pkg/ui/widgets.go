@@ -16,7 +16,8 @@ func (l Label) Measure(ctx *Context, constraints Constraints) Size {
 	if ctx.MeasureText == nil || l.Text == "" {
 		return constraints.Clamp(Size{})
 	}
-	w, h := ctx.MeasureText(l.Text, l.Size)
+	w, _ := ctx.MeasureText(l.Text, l.Size)
+	h := LineHeight(l.Size)
 	return constraints.Clamp(Size{W: w, H: h})
 }
 
@@ -65,7 +66,8 @@ type Button struct {
 func (b Button) Measure(ctx *Context, constraints Constraints) Size {
 	labelW, labelH := 0.0, 0.0
 	if ctx.MeasureText != nil {
-		labelW, labelH = ctx.MeasureText(b.Label, 13)
+		labelW, _ = ctx.MeasureText(b.Label, 13)
+		labelH = LineHeight(13)
 	}
 	width := b.Width
 	if width <= 0 {
@@ -100,7 +102,8 @@ func (b Button) Draw(ctx *Context, bounds Rect) {
 	if ctx.DrawText == nil || b.Label == "" {
 		return
 	}
-	tw, th := ctx.MeasureText(b.Label, 13)
+	tw, _ := ctx.MeasureText(b.Label, 13)
+	th := LineHeight(13)
 	ctx.DrawText(ctx.Screen, b.Label, bounds.X+(bounds.W-tw)/2, bounds.Y+(bounds.H-th)/2, 13, label)
 }
 
@@ -111,8 +114,10 @@ type KeyValue struct {
 }
 
 func (kv KeyValue) Measure(ctx *Context, constraints Constraints) Size {
-	labelW, labelH := ctx.MeasureText(kv.Label, 13)
-	valueW, valueH := ctx.MeasureText(kv.Value, 13)
+	labelW, _ := ctx.MeasureText(kv.Label, 13)
+	valueW, _ := ctx.MeasureText(kv.Value, 13)
+	labelH := LineHeight(13)
+	valueH := LineHeight(13)
 	return constraints.Clamp(Size{W: max(kv.LabelWidth, labelW) + 12 + valueW, H: max(labelH, valueH)})
 }
 
