@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/auth"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
 type Phase string
@@ -266,6 +269,102 @@ func (c *Controller) SetNetworkSettings(settings map[string]any) error {
 		}
 		return true, nil
 	})
+}
+
+func (c *Controller) GetVirtualMediaState(ctx context.Context) (*virtualmedia.State, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	return current.GetVirtualMediaState(ctx)
+}
+
+func (c *Controller) UnmountMedia() error {
+	return c.mutate("unmountImage", nil, nil)
+}
+
+func (c *Controller) MountMediaURL(url string, mode virtualmedia.Mode) error {
+	if strings.TrimSpace(url) == "" {
+		return errors.New("url is required")
+	}
+	if mode == "" {
+		return errors.New("mode is required")
+	}
+	return c.mutate("mountWithHTTP", map[string]any{
+		"url":  strings.TrimSpace(url),
+		"mode": mode,
+	}, nil)
+}
+
+func (c *Controller) GetStorageSpace(ctx context.Context) (virtualmedia.StorageSpace, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return virtualmedia.StorageSpace{}, errors.New("client not connected")
+	}
+	return current.GetStorageSpace(ctx)
+}
+
+func (c *Controller) ListStorageFiles(ctx context.Context) ([]virtualmedia.StorageFile, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return nil, errors.New("client not connected")
+	}
+	return current.ListStorageFiles(ctx)
+}
+
+func (c *Controller) DeleteStorageFile(filename string) error {
+	if strings.TrimSpace(filename) == "" {
+		return errors.New("filename is required")
+	}
+	return c.mutate("deleteStorageFile", map[string]any{"filename": filename}, nil)
+}
+
+func (c *Controller) MountStorageFile(filename string, mode virtualmedia.Mode) error {
+	if strings.TrimSpace(filename) == "" {
+		return errors.New("filename is required")
+	}
+	if mode == "" {
+		return errors.New("mode is required")
+	}
+	return c.mutate("mountWithStorage", map[string]any{
+		"filename": filename,
+		"mode":     mode,
+	}, nil)
+}
+
+func (c *Controller) UploadStorageFile(path string, progress func(virtualmedia.UploadProgress)) error {
+	current := c.clientIfConnected()
+	if current == nil {
+		return errors.New("client not connected")
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return errors.New("path must be a file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	uploadCtx := withTimeout(context.Background(), 30*time.Minute)
+	start, err := current.StartStorageFileUpload(uploadCtx, filepath.Base(path), info.Size())
+	if err != nil {
+		return err
+	}
+	if start.AlreadyUploadedBytes > 0 {
+		if _, err := file.Seek(start.AlreadyUploadedBytes, 0); err != nil {
+			return err
+		}
+	}
+	return current.UploadStorageFile(uploadCtx, start.DataChannel, file, start.AlreadyUploadedBytes, info.Size(), progress)
 }
 
 func (c *Controller) SendKeypress(key byte, press bool) error {

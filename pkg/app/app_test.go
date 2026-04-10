@@ -180,8 +180,8 @@ func TestLayoutChromeButtonsVertical(t *testing.T) {
 	app.prefs.ChromeLayout = "vertical"
 
 	buttons := app.layoutChromeButtons(1280, 720, session.Snapshot{Phase: session.PhaseConnected})
-	if len(buttons) != 4 {
-		t.Fatalf("button count = %d, want 4", len(buttons))
+	if len(buttons) != 5 {
+		t.Fatalf("button count = %d, want 5", len(buttons))
 	}
 	if buttons[0].rect.x != buttons[1].rect.x {
 		t.Fatalf("expected vertical buttons to share x, got %v and %v", buttons[0].rect.x, buttons[1].rect.x)
@@ -259,6 +259,37 @@ func TestCloseSettingsOverlayArmsDismissSuppression(t *testing.T) {
 	}
 	if !app.suppressKeysUntilClear {
 		t.Fatal("expected keyboard suppression after closing settings")
+	}
+}
+
+func TestCloseMediaOverlayArmsDismissSuppression(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.mediaOpen = true
+	app.closeMediaOverlay()
+
+	if app.mediaOpen {
+		t.Fatal("expected media overlay to close")
+	}
+	if !app.suppressMouseUntilUp {
+		t.Fatal("expected mouse suppression after closing media")
+	}
+	if !app.suppressKeysUntilClear {
+		t.Fatal("expected keyboard suppression after closing media")
+	}
+}
+
+func TestIsValidMediaURL(t *testing.T) {
+	if !isValidMediaURL("https://example.com/test.iso") {
+		t.Fatal("expected valid media URL")
+	}
+	for _, value := range []string{"", "/relative/path.iso", "example.com/test.iso"} {
+		if isValidMediaURL(value) {
+			t.Fatalf("expected %q to be invalid", value)
+		}
 	}
 }
 

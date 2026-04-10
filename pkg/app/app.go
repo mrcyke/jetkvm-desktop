@@ -55,6 +55,7 @@ type App struct {
 	settingsOpen           bool
 	pasteOpen              bool
 	statsOpen              bool
+	mediaOpen              bool
 	settingsSection        settingsSection
 	chromeButtons          []chromeButton
 	overlayButtons         []chromeButton
@@ -62,6 +63,8 @@ type App struct {
 	settingsPanel          rect
 	pasteButtons           []chromeButton
 	pastePanel             rect
+	mediaButtons           []chromeButton
+	mediaPanel             rect
 	launcherButtons        []chromeButton
 	prefs                  Preferences
 	hideCursor             bool
@@ -88,6 +91,24 @@ type App struct {
 	discovered             []discovery.Device
 	settingsActions        map[settingsActionGroup]settingsActionState
 	sectionLoadSeq         map[settingsSection]uint64
+	mediaView              mediaView
+	mediaURL               string
+	mediaMode              string
+	mediaURLFocused        bool
+	mediaState             *mediaStateSnapshot
+	mediaFiles             []mediaFileRow
+	mediaSpace             mediaSpaceSnapshot
+	mediaSelectedFile      string
+	mediaLoading           bool
+	mediaError             string
+	mediaUploadPath        string
+	mediaUploadFocused     bool
+	mediaUploading         bool
+	mediaUploadProgress    float64
+	mediaUploadSent        int64
+	mediaUploadTotal       int64
+	mediaUploadSpeed       float64
+	mediaStorageLoaded     bool
 }
 
 type statsPoint struct {
@@ -122,6 +143,34 @@ type settingsActionState struct {
 	RequestSeq    uint64
 }
 
+type mediaView string
+
+const (
+	mediaViewHome    mediaView = "home"
+	mediaViewURL     mediaView = "url"
+	mediaViewStorage mediaView = "storage"
+	mediaViewUpload  mediaView = "upload"
+)
+
+type mediaStateSnapshot struct {
+	Source   string
+	Mode     string
+	Filename string
+	URL      string
+	Size     int64
+}
+
+type mediaFileRow struct {
+	Filename  string
+	Size      int64
+	CreatedAt time.Time
+}
+
+type mediaSpaceSnapshot struct {
+	BytesUsed int64
+	BytesFree int64
+}
+
 func New(cfg Config) (*App, error) {
 	prefs := loadPreferences()
 	launcherOpen := strings.TrimSpace(cfg.BaseURL) == ""
@@ -142,6 +191,8 @@ func New(cfg Config) (*App, error) {
 		discovery:       discovery.NewScanner(),
 		settingsActions: make(map[settingsActionGroup]settingsActionState),
 		sectionLoadSeq:  make(map[settingsSection]uint64),
+		mediaView:       mediaViewHome,
+		mediaMode:       "CDROM",
 	}, nil
 }
 
@@ -159,6 +210,11 @@ func (a *App) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		if a.pasteOpen {
 			a.closePasteOverlay()
+			a.revealUIFor(1200 * time.Millisecond)
+			return nil
+		}
+		if a.mediaOpen {
+			a.closeMediaOverlay()
 			a.revealUIFor(1200 * time.Millisecond)
 			return nil
 		}
@@ -197,6 +253,7 @@ func (a *App) Update() error {
 	}
 
 	a.syncPasteInput()
+	a.syncMediaInput()
 	a.syncVideoFrame()
 	a.syncKeyboard()
 	a.syncMouse()
@@ -257,6 +314,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 	a.drawOverlay(screen, snap, img != nil)
 	a.drawStatsOverlay(screen)
 	a.drawHint(screen)
+	a.drawMediaOverlay(screen, snap)
 	a.drawSettingsOverlay(screen, snap)
 	a.drawPasteOverlay(screen, snap)
 }
@@ -271,7 +329,7 @@ func (a *App) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (a *App) syncKeyboard() {
-	if !a.focused || a.settingsOpen || a.pasteOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
+	if !a.focused || a.settingsOpen || a.pasteOpen || a.mediaOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
 	rawKeys := inpututil.AppendPressedKeys(nil)
@@ -295,7 +353,7 @@ func (a *App) syncKeyboard() {
 }
 
 func (a *App) syncMouse() {
-	if a.settingsOpen || a.pasteOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
+	if a.settingsOpen || a.pasteOpen || a.mediaOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
 		return
 	}
 	x, y := ebiten.CursorPosition()
@@ -700,6 +758,8 @@ func (a *App) applyCursorMode() {
 		ebiten.SetCursorMode(ebiten.CursorModeVisible)
 	case a.pasteOpen:
 		ebiten.SetCursorMode(ebiten.CursorModeVisible)
+	case a.mediaOpen:
+		ebiten.SetCursorMode(ebiten.CursorModeVisible)
 	case a.relative:
 		ebiten.SetCursorMode(ebiten.CursorModeCaptured)
 	case a.hideCursor:
@@ -733,6 +793,17 @@ func (a *App) handleClick() {
 			continue
 		}
 		a.invokeAction(btn.id)
+		return
+	}
+	for _, btn := range a.mediaButtons {
+		if !btn.enabled || !btn.rect.contains(x, y) {
+			continue
+		}
+		a.invokeAction(btn.id)
+		return
+	}
+	if a.mediaOpen && !a.mediaPanel.contains(x, y) {
+		a.closeMediaOverlay()
 		return
 	}
 	for _, btn := range a.pasteButtons {
@@ -799,7 +870,14 @@ func (a *App) invokeAction(id string) {
 			a.pasteOpen = true
 			a.loadClipboardText()
 			a.settingsOpen = false
+			a.mediaOpen = false
 			a.applyCursorMode()
+		}
+	case "media":
+		if a.mediaOpen {
+			a.closeMediaOverlay()
+		} else {
+			a.openMediaOverlay()
 		}
 	case "stats":
 		a.statsOpen = !a.statsOpen
@@ -847,12 +925,21 @@ func (a *App) invokeAction(id string) {
 		} else {
 			a.settingsOpen = true
 			a.pasteOpen = false
+			a.mediaOpen = false
 			a.refreshSettingsSection(a.settingsSection)
 			a.applyCursorMode()
 		}
 		a.revealUIFor(1200 * time.Millisecond)
 	case "settings_close":
 		a.closeSettingsOverlay()
+	case "media_close":
+		a.closeMediaOverlay()
+	default:
+		if a.invokeMediaAction(id) {
+			return
+		}
+	}
+	switch id {
 	case "mouse_hide_cursor":
 		a.hideCursor = !a.hideCursor
 		a.applyCursorMode()
@@ -1018,13 +1105,13 @@ func (a *App) syncChromeVisibility() {
 	hotZone := a.chromeRevealZone(a.lastWidth, a.lastHeight, snap)
 	x, y := ebiten.CursorPosition()
 	if x != a.lastUIX || y != a.lastUIY {
-		if hotZone.contains(x, y) || a.settingsOpen || a.pasteOpen {
+		if hotZone.contains(x, y) || a.settingsOpen || a.pasteOpen || a.mediaOpen {
 			a.revealUIFor(1600 * time.Millisecond)
 		}
 		a.lastUIX = x
 		a.lastUIY = y
 	}
-	if a.settingsOpen || a.pasteOpen {
+	if a.settingsOpen || a.pasteOpen || a.mediaOpen {
 		a.applyCursorMode()
 		a.revealUIFor(500 * time.Millisecond)
 	}
@@ -1045,6 +1132,7 @@ func (a *App) syncSessionState() {
 		a.settingsOpen = false
 		a.pasteOpen = false
 		a.statsOpen = false
+		a.mediaOpen = false
 		a.relative = false
 		a.applyCursorMode()
 	}
@@ -1054,6 +1142,9 @@ func (a *App) syncSessionState() {
 	if a.lastPhase == session.PhaseConnected && phase != session.PhaseConnected {
 		if a.pasteOpen {
 			a.pasteOpen = false
+		}
+		if a.mediaOpen {
+			a.mediaOpen = false
 		}
 		a.releaseAllKeys(false)
 		a.releasePointerState()
@@ -1138,6 +1229,17 @@ func (a *App) closeSettingsOverlay() {
 	a.applyCursorMode()
 }
 
+func (a *App) closeMediaOverlay() {
+	if !a.mediaOpen || a.mediaUploading {
+		return
+	}
+	a.mediaOpen = false
+	a.mediaURLFocused = false
+	a.mediaUploadFocused = false
+	a.armOverlayDismissSuppression()
+	a.applyCursorMode()
+}
+
 func (a *App) releasePointerState() {
 	if a.lastButtons == 0 {
 		return
@@ -1212,7 +1314,7 @@ func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo 
 }
 
 func (a *App) drawPressedKeysOverlay(screen *ebiten.Image) {
-	if !a.showPressedKeys || a.settingsOpen {
+	if !a.showPressedKeys || a.settingsOpen || a.mediaOpen {
 		return
 	}
 	pressed := a.keyboard.Pressed()

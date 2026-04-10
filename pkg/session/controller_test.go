@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/emulator"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/auth"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
 
 func TestControllerConnects(t *testing.T) {
@@ -196,6 +199,104 @@ func TestControllerSetKeyboardLayoutSucceedsWhenWriteAckIsDropped(t *testing.T) 
 	}
 	if got := controller.Snapshot().KeyboardLayout; got != "da-DK" {
 		t.Fatalf("snapshot keyboard layout = %q, want da-DK", got)
+	}
+}
+
+func TestControllerVirtualMediaURLMountAndUnmount(t *testing.T) {
+	srv, ctx, cancel := startEmulator(t)
+	defer cancel()
+
+	controller := New(Config{
+		BaseURL:    srv.BaseURL(),
+		Password:   "secret",
+		RPCTimeout: 2 * time.Second,
+		Reconnect:  true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+
+	if err := controller.MountMediaURL("https://example.com/debian.iso", virtualmedia.ModeCDROM); err != nil {
+		t.Fatalf("MountMediaURL returned error: %v", err)
+	}
+	state, err := controller.GetVirtualMediaState(context.Background())
+	if err != nil {
+		t.Fatalf("GetVirtualMediaState returned error: %v", err)
+	}
+	if state == nil || state.Source != virtualmedia.SourceHTTP || state.URL != "https://example.com/debian.iso" {
+		t.Fatalf("unexpected media state: %+v", state)
+	}
+
+	if err := controller.UnmountMedia(); err != nil {
+		t.Fatalf("UnmountMedia returned error: %v", err)
+	}
+	state, err = controller.GetVirtualMediaState(context.Background())
+	if err != nil {
+		t.Fatalf("GetVirtualMediaState after unmount returned error: %v", err)
+	}
+	if state != nil {
+		t.Fatalf("expected media to be unmounted, got %+v", state)
+	}
+}
+
+func TestControllerUploadAndMountStorageFile(t *testing.T) {
+	srv, ctx, cancel := startEmulator(t)
+	defer cancel()
+
+	controller := New(Config{
+		BaseURL:    srv.BaseURL(),
+		Password:   "secret",
+		RPCTimeout: 2 * time.Second,
+		Reconnect:  true,
+	})
+	controller.Start(ctx)
+	defer controller.Stop()
+
+	waitForPhase(t, controller, PhaseConnected, 5*time.Second)
+
+	tempDir := t.TempDir()
+	imagePath := filepath.Join(tempDir, "test.iso")
+	if err := os.WriteFile(imagePath, []byte("virtual-media-test-image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	progressCalls := 0
+	if err := controller.UploadStorageFile(imagePath, func(progress virtualmedia.UploadProgress) {
+		progressCalls++
+		if progress.Total <= 0 {
+			t.Fatalf("expected upload total to be positive, got %+v", progress)
+		}
+	}); err != nil {
+		t.Fatalf("UploadStorageFile returned error: %v", err)
+	}
+	if progressCalls == 0 {
+		t.Fatal("expected upload progress callback to run")
+	}
+
+	files, err := controller.ListStorageFiles(context.Background())
+	if err != nil {
+		t.Fatalf("ListStorageFiles returned error: %v", err)
+	}
+	found := false
+	for _, file := range files {
+		if file.Filename == "test.iso" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected uploaded file in storage list, got %+v", files)
+	}
+
+	if err := controller.MountStorageFile("test.iso", virtualmedia.ModeCDROM); err != nil {
+		t.Fatalf("MountStorageFile returned error: %v", err)
+	}
+	state, err := controller.GetVirtualMediaState(context.Background())
+	if err != nil {
+		t.Fatalf("GetVirtualMediaState returned error: %v", err)
+	}
+	if state == nil || state.Source != virtualmedia.SourceStorage || state.Filename != "test.iso" {
+		t.Fatalf("unexpected mounted storage state: %+v", state)
 	}
 }
 

@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/hidrpc"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/jsonrpc"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/signaling"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/video"
 )
 
@@ -80,7 +84,20 @@ type Server struct {
 	token     string
 	state     DeviceState
 	inputs    []InputRecord
+	media     *virtualmedia.State
+	storage   map[string]storedFile
+	uploads   map[string]*pendingUpload
 	startedCh chan struct{}
+}
+
+type storedFile struct {
+	data      []byte
+	createdAt time.Time
+}
+
+type pendingUpload struct {
+	filename string
+	size     int64
 }
 
 type session struct {
@@ -110,6 +127,11 @@ func NewServer(cfg Config) (*Server, error) {
 		token:  "jetkvm-desktop-emulator-token",
 		state:  DeviceState{DeviceID: "emu-jetkvm-001", VideoState: "ready", StreamQualityFactor: 0.75, KeyboardLEDMask: 0, KeyboardModifiers: 0, KeysDown: []byte{0, 0, 0, 0, 0, 0}, Hostname: "jetkvm-emulator", KeyboardLayout: "en_US", TLSMode: "disabled", DisplayRotation: "270", USBEmulation: true},
 		inputs: make([]InputRecord, 0, 32),
+		storage: map[string]storedFile{
+			"debian.iso": {data: bytes.Repeat([]byte("D"), 8 * 1024), createdAt: time.Now().Add(-2 * time.Hour)},
+			"tools.img":  {data: bytes.Repeat([]byte("I"), 4 * 1024), createdAt: time.Now().Add(-1 * time.Hour)},
+		},
+		uploads: make(map[string]*pendingUpload),
 	}
 	if cfg.Faults.InitialVideoState != "" {
 		s.state.VideoState = cfg.Faults.InitialVideoState
@@ -124,6 +146,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/auth/password-local", s.handlePasswordLocal)
 	mux.HandleFunc("/auth/local-password", s.handleDeletePassword)
 	mux.HandleFunc("/cloud/state", s.handleCloudState)
+	mux.HandleFunc("/storage/upload", s.handleStorageUpload)
 	mux.HandleFunc("/webrtc/session", s.handleSession)
 	mux.HandleFunc("/webrtc/signaling/client", s.handleSignalingClient)
 	mux.HandleFunc("/healthz", s.handleHealth)
@@ -487,6 +510,52 @@ func (s *Server) handleCloudState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleStorageUpload(w http.ResponseWriter, r *http.Request) {
+	if s.handlePreflight(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	uploadID := strings.TrimSpace(r.URL.Query().Get("uploadId"))
+	if uploadID == "" {
+		http.Error(w, "missing uploadId", http.StatusBadRequest)
+		return
+	}
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read upload", http.StatusInternalServerError)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	upload, ok := s.uploads[uploadID]
+	if !ok {
+		http.Error(w, "upload not found", http.StatusNotFound)
+		return
+	}
+	incompleteName := upload.filename + ".incomplete"
+	file := s.storage[incompleteName]
+	file.data = append(file.data, data...)
+	if file.createdAt.IsZero() {
+		file.createdAt = time.Now()
+	}
+	if int64(len(file.data)) >= upload.size {
+		s.storage[upload.filename] = storedFile{data: file.data[:upload.size], createdAt: file.createdAt}
+		delete(s.storage, incompleteName)
+		delete(s.uploads, uploadID)
+	} else {
+		s.storage[incompleteName] = file
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Upload completed"})
+}
+
 func (s *Server) handlePreflight(w http.ResponseWriter, r *http.Request) bool {
 	s.writeCORS(w, r)
 	if r.Method == http.MethodOptions {
@@ -809,6 +878,134 @@ func (s *session) handleRPC(data []byte) error {
 		}
 	case "getKeyboardMacros":
 		resp = jsonrpc.NewResponse(req.ID, []any{})
+	case "getVirtualMediaState":
+		s.serverRef.mu.Lock()
+		state := s.serverRef.media
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, state)
+	case "unmountImage":
+		s.serverRef.mu.Lock()
+		s.serverRef.media = nil
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, true)
+	case "mountWithHTTP":
+		rawURL, _ := req.Params["url"].(string)
+		rawMode, _ := req.Params["mode"].(string)
+		if strings.TrimSpace(rawURL) == "" || strings.TrimSpace(rawMode) == "" {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing mount params", nil)
+			break
+		}
+		s.serverRef.mu.Lock()
+		if s.serverRef.media != nil {
+			s.serverRef.mu.Unlock()
+			resp = jsonrpc.NewErrorResponse(req.ID, -32000, "another virtual media is already mounted", nil)
+			break
+		}
+		s.serverRef.media = &virtualmedia.State{
+			Source: virtualmedia.SourceHTTP,
+			Mode:   virtualmedia.Mode(rawMode),
+			URL:    rawURL,
+			Size:   2 * 1024 * 1024,
+		}
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, true)
+	case "mountWithStorage":
+		filename, _ := req.Params["filename"].(string)
+		rawMode, _ := req.Params["mode"].(string)
+		filename = filepath.Base(strings.TrimSpace(filename))
+		if filename == "" || strings.TrimSpace(rawMode) == "" {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing mount params", nil)
+			break
+		}
+		s.serverRef.mu.Lock()
+		if s.serverRef.media != nil {
+			s.serverRef.mu.Unlock()
+			resp = jsonrpc.NewErrorResponse(req.ID, -32000, "another virtual media is already mounted", nil)
+			break
+		}
+		file, ok := s.serverRef.storage[filename]
+		if !ok || strings.HasSuffix(filename, ".incomplete") {
+			s.serverRef.mu.Unlock()
+			resp = jsonrpc.NewErrorResponse(req.ID, -32000, "storage file not found", nil)
+			break
+		}
+		s.serverRef.media = &virtualmedia.State{
+			Source:   virtualmedia.SourceStorage,
+			Mode:     virtualmedia.Mode(rawMode),
+			Filename: filename,
+			Size:     int64(len(file.data)),
+		}
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, true)
+	case "listStorageFiles":
+		s.serverRef.mu.Lock()
+		files := make([]virtualmedia.StorageFile, 0, len(s.serverRef.storage))
+		for name, file := range s.serverRef.storage {
+			files = append(files, virtualmedia.StorageFile{
+				Filename:  name,
+				Size:      int64(len(file.data)),
+				CreatedAt: file.createdAt,
+			})
+		}
+		s.serverRef.mu.Unlock()
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].CreatedAt.After(files[j].CreatedAt)
+		})
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{"files": files})
+	case "getStorageSpace":
+		s.serverRef.mu.Lock()
+		var used int64
+		for _, file := range s.serverRef.storage {
+			used += int64(len(file.data))
+		}
+		s.serverRef.mu.Unlock()
+		total := int64(2 * 1024 * 1024 * 1024)
+		resp = jsonrpc.NewResponse(req.ID, virtualmedia.StorageSpace{
+			BytesUsed: used,
+			BytesFree: total - used,
+		})
+	case "deleteStorageFile":
+		filename, _ := req.Params["filename"].(string)
+		filename = filepath.Base(strings.TrimSpace(filename))
+		if filename == "" {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing filename", nil)
+			break
+		}
+		s.serverRef.mu.Lock()
+		if _, ok := s.serverRef.storage[filename]; !ok {
+			s.serverRef.mu.Unlock()
+			resp = jsonrpc.NewErrorResponse(req.ID, -32000, "file does not exist", nil)
+			break
+		}
+		delete(s.serverRef.storage, filename)
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, true)
+	case "startStorageFileUpload":
+		filename, _ := req.Params["filename"].(string)
+		filename = filepath.Base(strings.TrimSpace(filename))
+		size, _ := req.Params["size"].(float64)
+		if filename == "" || size <= 0 {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "invalid upload params", nil)
+			break
+		}
+		s.serverRef.mu.Lock()
+		if _, ok := s.serverRef.storage[filename]; ok {
+			s.serverRef.mu.Unlock()
+			resp = jsonrpc.NewErrorResponse(req.ID, -32000, "file already exists", nil)
+			break
+		}
+		incompleteName := filename + ".incomplete"
+		file := s.serverRef.storage[incompleteName]
+		uploadID := fmt.Sprintf("upload_%d", time.Now().UnixNano())
+		s.serverRef.uploads[uploadID] = &pendingUpload{
+			filename: filename,
+			size:     int64(size),
+		}
+		s.serverRef.mu.Unlock()
+		resp = jsonrpc.NewResponse(req.ID, virtualmedia.UploadStart{
+			AlreadyUploadedBytes: int64(len(file.data)),
+			DataChannel:          uploadID,
+		})
 	case "getLocalVersion":
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"appVersion": "emulator-dev", "systemVersion": "emulator-dev"})
 	case "getUpdateStatus":

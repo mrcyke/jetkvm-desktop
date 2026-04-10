@@ -19,6 +19,7 @@ const (
 	iconReconnect  iconKind = "reconnect"
 	iconMouse      iconKind = "mouse"
 	iconPaste      iconKind = "paste"
+	iconMedia      iconKind = "media"
 	iconStats      iconKind = "stats"
 	iconMinus      iconKind = "minus"
 	iconPlus       iconKind = "plus"
@@ -273,6 +274,7 @@ func (a *App) layoutChromeButtons(width, height int, snap session.Snapshot) []ch
 	}
 	if snap.Phase == session.PhaseConnected {
 		defs = append(defs, chromeButton{id: "paste", hint: "Paste text", icon: iconPaste, enabled: true, active: a.pasteOpen})
+		defs = append(defs, chromeButton{id: "media", hint: "Virtual media", icon: iconMedia, enabled: true, active: a.mediaOpen})
 	}
 	defs = append(defs,
 		chromeButton{id: "stats", hint: "Connection stats", icon: iconStats, enabled: true, active: a.statsOpen},
@@ -411,6 +413,11 @@ func drawIcon(screen *ebiten.Image, kind iconKind, r rect, clr color.Color, alph
 		vector.StrokeRect(screen, left, top+2, right-left, bottom-top-2, 1.4, clr, false)
 		vector.StrokeLine(screen, left+3, top+6, right-3, top+6, 1.4, clr, true)
 		vector.StrokeLine(screen, cx, top+6, cx, top+1, 1.4, clr, true)
+	case iconMedia:
+		vector.StrokeRect(screen, left+1, top+2, right-left-2, bottom-top-5, 1.4, clr, false)
+		vector.StrokeLine(screen, left+5, top+2, left+8, top-1, 1.4, clr, true)
+		vector.StrokeLine(screen, right-5, top+2, right-8, top-1, 1.4, clr, true)
+		vector.StrokeLine(screen, left+4, cy, right-4, cy, 1.4, clr, true)
 	case iconStats:
 		vector.StrokeLine(screen, left+2, bottom, left+2, mid+4, 2, clr, true)
 		vector.StrokeLine(screen, cx, bottom, cx, top+5, 2, clr, true)
