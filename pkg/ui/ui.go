@@ -198,7 +198,21 @@ func (c *Context) FillRect(r Rect, clr color.Color) {
 }
 
 func (c *Context) StrokeRect(r Rect, width float64, clr color.Color) {
-	vector.StrokeRect(c.Screen, float32(r.X), float32(r.Y), float32(r.W), float32(r.H), float32(width), clr, false)
+	if width <= 0 || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	strokeW := min(width, min(r.W, r.H))
+	c.FillRect(Rect{X: r.X, Y: r.Y, W: r.W, H: strokeW}, clr)
+	if r.H > strokeW {
+		c.FillRect(Rect{X: r.X, Y: r.Bottom() - strokeW, W: r.W, H: strokeW}, clr)
+	}
+	if r.H > strokeW*2 {
+		sideH := r.H - strokeW*2
+		c.FillRect(Rect{X: r.X, Y: r.Y + strokeW, W: strokeW, H: sideH}, clr)
+		if r.W > strokeW {
+			c.FillRect(Rect{X: r.Right() - strokeW, Y: r.Y + strokeW, W: strokeW, H: sideH}, clr)
+		}
+	}
 }
 
 func (c *Context) StrokeLine(from, to Point, width float64, clr color.Color) {
@@ -248,6 +262,13 @@ func clamp(value, low, high float64) float64 {
 
 func max(a, b float64) float64 {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b float64) float64 {
+	if a < b {
 		return a
 	}
 	return b
