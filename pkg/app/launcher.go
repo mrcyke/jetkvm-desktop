@@ -277,17 +277,25 @@ func (launcherInputTextElement) Measure(_ *ui.Context, constraints ui.Constraint
 }
 
 func (e launcherInputTextElement) Draw(ctx *ui.Context, bounds ui.Rect) {
+	textSize := 15.0
 	text := e.app.launcherInput
 	textColor := color.RGBA{R: 241, G: 245, B: 249, A: 255}
-	if text == "" {
+	showPlaceholder := text == ""
+	if showPlaceholder {
 		text = "jetkvm.local or 192.168.1.50"
 		textColor = color.RGBA{R: 100, G: 116, B: 139, A: 255}
 	}
-	ui.Label{Text: text, Size: 15, Color: textColor}.Draw(ctx, bounds)
-	if strings.TrimSpace(e.app.launcherInput) != "" && time.Now().UnixMilli()/500%2 == 0 {
-		textW, _ := ctx.MeasureText(text, 15)
-		ctx.FillRect(ui.Rect{X: bounds.X + textW + 2, Y: bounds.Y - 4, W: 2, H: 20}, color.RGBA{R: 191, G: 219, B: 254, A: 255})
+	textY := bounds.Y + (bounds.H-ui.LineHeight(textSize))/2
+	ctx.DrawText(ctx.Screen, text, bounds.X, textY, textSize, textColor)
+	if time.Now().UnixMilli()/500%2 != 0 {
+		return
 	}
+	caretX := bounds.X
+	if !showPlaceholder {
+		textW, _ := ctx.MeasureText(e.app.launcherInput, textSize)
+		caretX += textW + 2
+	}
+	ctx.FillRect(ui.Rect{X: caretX, Y: textY, W: 2, H: ui.LineHeight(textSize)}, color.RGBA{R: 191, G: 219, B: 254, A: 255})
 }
 
 type launcherPasswordElement struct {
@@ -341,15 +349,25 @@ func (launcherPasswordFieldElement) Measure(_ *ui.Context, constraints ui.Constr
 }
 
 func (e launcherPasswordFieldElement) Draw(ctx *ui.Context, bounds ui.Rect) {
-	if e.passDisplay == "" {
-		ui.Label{Text: "Local password", Size: 15, Color: color.RGBA{R: 100, G: 116, B: 139, A: 255}}.Draw(ctx, bounds)
+	textSize := 15.0
+	text := e.passDisplay
+	textColor := color.RGBA{R: 241, G: 245, B: 249, A: 255}
+	showPlaceholder := text == ""
+	if showPlaceholder {
+		text = "Local password"
+		textColor = color.RGBA{R: 100, G: 116, B: 139, A: 255}
+	}
+	textY := bounds.Y + (bounds.H-ui.LineHeight(textSize))/2
+	ctx.DrawText(ctx.Screen, text, bounds.X, textY, textSize, textColor)
+	if time.Now().UnixMilli()/500%2 != 0 {
 		return
 	}
-	ui.Label{Text: e.passDisplay, Size: 15, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}.Draw(ctx, bounds)
-	if time.Now().UnixMilli()/500%2 == 0 {
-		textW, _ := ctx.MeasureText(e.passDisplay, 15)
-		ctx.FillRect(ui.Rect{X: bounds.X + textW + 2, Y: bounds.Y - 4, W: 2, H: 22}, color.RGBA{R: 248, G: 113, B: 113, A: 255})
+	caretX := bounds.X
+	if !showPlaceholder {
+		textW, _ := ctx.MeasureText(e.passDisplay, textSize)
+		caretX += textW + 2
 	}
+	ctx.FillRect(ui.Rect{X: caretX, Y: textY, W: 2, H: ui.LineHeight(textSize)}, color.RGBA{R: 248, G: 113, B: 113, A: 255})
 }
 
 func humanDiscoveryAge(at time.Time) string {

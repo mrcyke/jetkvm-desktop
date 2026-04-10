@@ -134,16 +134,26 @@ func (t TextField) Draw(ctx *Context, bounds Rect) {
 	if ctx.DrawText == nil {
 		return
 	}
+	textSize := 13.0
 	text := t.Value
 	textColor := ctx.Theme.Body
+	showPlaceholder := strings.TrimSpace(text) == ""
 	if strings.TrimSpace(text) == "" {
 		text = t.Placeholder
 		textColor = ctx.Theme.DisabledText
 	}
-	if t.Focused && strings.TrimSpace(t.Value) != "" && time.Now().UnixNano()/500_000_000%2 == 0 {
-		text += "|"
+	textY := bounds.Y + (bounds.H-LineHeight(textSize))/2
+	ctx.DrawText(ctx.Screen, text, bounds.X+12, textY, textSize, textColor)
+	if !t.Focused || time.Now().UnixNano()/500_000_000%2 != 0 {
+		return
 	}
-	ctx.DrawText(ctx.Screen, text, bounds.X+12, bounds.Y+12, 13, textColor)
+	caretX := bounds.X + 12
+	if !showPlaceholder {
+		textW, _ := ctx.MeasureText(t.Value, textSize)
+		caretX += textW + 2
+	}
+	caretH := LineHeight(textSize)
+	ctx.FillRect(Rect{X: caretX, Y: textY, W: 2, H: caretH}, ctx.Theme.Body)
 }
 
 type ProgressBar struct {

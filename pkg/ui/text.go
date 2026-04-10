@@ -39,7 +39,7 @@ func DrawText(dst *ebiten.Image, value string, x, y, size float64, clr color.Col
 		return
 	}
 	op := &ebitentext.DrawOptions{}
-	op.GeoM.Translate(x, y)
+	op.GeoM.Translate(x, y+fontFace.Metrics().HAscent)
 	op.ColorScale.ScaleWithColor(clr)
 	ebitentext.Draw(dst, value, fontFace, op)
 }
@@ -50,6 +50,15 @@ func MeasureText(value string, size float64) (float64, float64) {
 		return 0, 0
 	}
 	return ebitentext.Measure(value, fontFace, 0)
+}
+
+func LineHeight(size float64) float64 {
+	fontFace := face(size)
+	if fontFace == nil {
+		return size
+	}
+	metrics := fontFace.Metrics()
+	return metrics.HAscent + metrics.HDescent
 }
 
 func DrawWrappedText(dst *ebiten.Image, value string, x, y, width, size float64, clr color.Color) float64 {
