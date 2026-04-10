@@ -106,12 +106,14 @@ type pendingUpload struct {
 }
 
 type session struct {
-	pc        *webrtc.PeerConnection
-	rpc       *webrtc.DataChannel
-	hid       *webrtc.DataChannel
-	opened    map[string]bool
-	openedMu  sync.Mutex
-	serverRef *Server
+	pc         *webrtc.PeerConnection
+	rpc        *webrtc.DataChannel
+	hid        *webrtc.DataChannel
+	hidOrdered *webrtc.DataChannel
+	hidLoose   *webrtc.DataChannel
+	opened     map[string]bool
+	openedMu   sync.Mutex
+	serverRef  *Server
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -664,10 +666,12 @@ func (s *Server) exchangeOffer(encoded string) (string, error) {
 				_ = sess.handleHID("hidrpc", msg.Data)
 			})
 		case "hidrpc-unreliable-ordered":
+			sess.hidOrdered = dc
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 				_ = sess.handleHID("hidrpc-unreliable-ordered", msg.Data)
 			})
 		case "hidrpc-unreliable-nonordered":
+			sess.hidLoose = dc
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 				_ = sess.handleHID("hidrpc-unreliable-nonordered", msg.Data)
 			})
@@ -734,7 +738,7 @@ func (s *Server) exchangeOffer(encoded string) (string, error) {
 			select {
 			case <-streamCtx.Done():
 			case <-timer.C:
-				_ = pc.Close()
+				sess.closeTransport()
 			}
 		}()
 	}
@@ -770,6 +774,24 @@ func (s *session) sendEvent(method string, params any) error {
 		return err
 	}
 	return s.rpc.SendText(string(data))
+}
+
+func (s *session) closeTransport() {
+	if s.rpc != nil {
+		_ = s.rpc.Close()
+	}
+	if s.hid != nil {
+		_ = s.hid.Close()
+	}
+	if s.hidOrdered != nil {
+		_ = s.hidOrdered.Close()
+	}
+	if s.hidLoose != nil {
+		_ = s.hidLoose.Close()
+	}
+	if s.pc != nil {
+		_ = s.pc.Close()
+	}
 }
 
 func requestParams(raw any) map[string]any {
@@ -870,7 +892,7 @@ func (s *session) handleRPC(data []byte) error {
 		resp = jsonrpc.NewResponse(req.ID, true)
 		go func() {
 			time.Sleep(50 * time.Millisecond)
-			_ = s.pc.Close()
+			s.closeTransport()
 		}()
 	case "getKeyboardLayout":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.KeyboardLayout)

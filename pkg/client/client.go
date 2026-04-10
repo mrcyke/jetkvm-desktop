@@ -423,6 +423,7 @@ func (c *Client) openDataChannels() error {
 	if err != nil {
 		return err
 	}
+	c.watchControlChannel(c.rpcDC)
 	c.rpcDC.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if !msg.IsString {
 			return
@@ -448,6 +449,7 @@ func (c *Client) openDataChannels() error {
 	if err != nil {
 		return err
 	}
+	c.watchControlChannel(c.hidDC)
 	c.hidDC.OnOpen(func() {
 		go c.runHIDHandshake(c.hidDC)
 	})
@@ -476,11 +478,30 @@ func (c *Client) openDataChannels() error {
 	if err != nil {
 		return err
 	}
+	c.watchControlChannel(c.hidUnreliable)
 	c.hidNonOrdered, err = c.pc.CreateDataChannel("hidrpc-unreliable-nonordered", &webrtc.DataChannelInit{
 		Ordered:        &[]bool{false}[0],
 		MaxRetransmits: &[]uint16{0}[0],
 	})
+	if err == nil {
+		c.watchControlChannel(c.hidNonOrdered)
+	}
 	return err
+}
+
+func (c *Client) watchControlChannel(dc *webrtc.DataChannel) {
+	if dc == nil {
+		return
+	}
+	dc.OnClose(func() {
+		c.handleTransportDisconnect(webrtc.PeerConnectionStateDisconnected)
+	})
+	dc.OnError(func(err error) {
+		if err != nil {
+			c.lastError.Store(err.Error())
+		}
+		c.handleTransportDisconnect(webrtc.PeerConnectionStateFailed)
+	})
 }
 
 func (c *Client) HTTPClient() *http.Client {
