@@ -55,6 +55,7 @@ type DeviceState struct {
 	DeviceID            string
 	VideoState          string
 	StreamQualityFactor float64
+	AutoUpdateEnabled   bool
 	KeyboardLEDMask     byte
 	KeyboardModifiers   byte
 	KeysDown            []byte
@@ -62,6 +63,9 @@ type DeviceState struct {
 	CloudURL            string
 	CloudAppURL         string
 	KeyboardLayout      string
+	DeveloperMode       bool
+	JigglerEnabled      bool
+	JigglerConfig       map[string]any
 	TLSMode             string
 	DisplayRotation     string
 	USBEmulation        bool
@@ -122,9 +126,29 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg.FPS = 15
 	}
 	s := &Server{
-		cfg:    cfg,
-		token:  "jetkvm-desktop-emulator-token",
-		state:  DeviceState{DeviceID: "emu-jetkvm-001", VideoState: "ready", StreamQualityFactor: 0.75, KeyboardLEDMask: 0, KeyboardModifiers: 0, KeysDown: []byte{0, 0, 0, 0, 0, 0}, Hostname: "jetkvm-emulator", KeyboardLayout: "en_US", TLSMode: "disabled", DisplayRotation: "270", USBEmulation: true},
+		cfg:   cfg,
+		token: "jetkvm-desktop-emulator-token",
+		state: DeviceState{
+			DeviceID:            "emu-jetkvm-001",
+			VideoState:          "ready",
+			StreamQualityFactor: 0.75,
+			AutoUpdateEnabled:   true,
+			KeyboardLEDMask:     0,
+			KeyboardModifiers:   0,
+			KeysDown:            []byte{0, 0, 0, 0, 0, 0},
+			Hostname:            "jetkvm-emulator",
+			KeyboardLayout:      "en_US",
+			DeveloperMode:       false,
+			JigglerEnabled:      false,
+			JigglerConfig: map[string]any{
+				"inactivity_limit_seconds": 60,
+				"jitter_percentage":        25,
+				"schedule_cron_tab":        "0 * * * * *",
+			},
+			TLSMode:         "disabled",
+			DisplayRotation: "270",
+			USBEmulation:    true,
+		},
 		inputs: make([]InputRecord, 0, 32),
 		storage: map[string]storedFile{
 			"debian.iso": {data: bytes.Repeat([]byte("D"), 8*1024), createdAt: time.Now().Add(-2 * time.Hour)},
@@ -785,6 +809,15 @@ func (s *session) handleRPC(data []byte) error {
 		resp = jsonrpc.NewResponse(req.ID, map[string]any{"modifier": s.serverRef.state.KeyboardModifiers, "keys": s.serverRef.state.KeysDown})
 	case "getStreamQualityFactor":
 		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.StreamQualityFactor)
+	case "getAutoUpdateState":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.AutoUpdateEnabled)
+	case "setAutoUpdateState":
+		if enabled, ok := params["enabled"].(bool); ok {
+			s.serverRef.state.AutoUpdateEnabled = enabled
+			resp = jsonrpc.NewResponse(req.ID, enabled)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
 	case "setStreamQualityFactor":
 		if factor, ok := params["factor"].(float64); ok {
 			s.serverRef.state.StreamQualityFactor = factor
@@ -886,6 +919,33 @@ func (s *session) handleRPC(data []byte) error {
 		}
 	case "getKeyboardMacros":
 		resp = jsonrpc.NewResponse(req.ID, []any{})
+	case "getDevModeState":
+		resp = jsonrpc.NewResponse(req.ID, map[string]any{"enabled": s.serverRef.state.DeveloperMode})
+	case "setDevModeState":
+		if enabled, ok := params["enabled"].(bool); ok {
+			s.serverRef.state.DeveloperMode = enabled
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
+	case "getJigglerState":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.JigglerEnabled)
+	case "setJigglerState":
+		if enabled, ok := params["enabled"].(bool); ok {
+			s.serverRef.state.JigglerEnabled = enabled
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing enabled", nil)
+		}
+	case "getJigglerConfig":
+		resp = jsonrpc.NewResponse(req.ID, s.serverRef.state.JigglerConfig)
+	case "setJigglerConfig":
+		if cfg, ok := params["jigglerConfig"].(map[string]any); ok {
+			s.serverRef.state.JigglerConfig = cfg
+			resp = jsonrpc.NewResponse(req.ID, true)
+		} else {
+			resp = jsonrpc.NewErrorResponse(req.ID, -32602, "missing jigglerConfig", nil)
+		}
 	case "getVirtualMediaState":
 		s.serverRef.mu.Lock()
 		state := s.serverRef.media

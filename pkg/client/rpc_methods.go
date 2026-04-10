@@ -65,6 +65,16 @@ func (c *Client) GetUpdateStatus(ctx context.Context) (UpdateStatus, error) {
 	return status, err
 }
 
+func (c *Client) GetAutoUpdateState(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := c.Call(ctx, "getAutoUpdateState", nil, &enabled)
+	return enabled, err
+}
+
+func (c *Client) SetAutoUpdateState(ctx context.Context, enabled bool) error {
+	return c.Call(ctx, "setAutoUpdateState", enabledStateRequest{Enabled: enabled}, nil)
+}
+
 func (c *Client) GetNetworkSettings(ctx context.Context) (NetworkSettings, error) {
 	var settings NetworkSettings
 	err := c.Call(ctx, "getNetworkSettings", nil, &settings)
@@ -137,6 +147,30 @@ func (c *Client) GetDeveloperModeState(ctx context.Context) (DeveloperModeState,
 	var state DeveloperModeState
 	err := c.Call(ctx, "getDevModeState", nil, &state)
 	return state, err
+}
+
+func (c *Client) SetDeveloperModeState(ctx context.Context, enabled bool) error {
+	return c.Call(ctx, "setDevModeState", enabledStateRequest{Enabled: enabled}, nil)
+}
+
+func (c *Client) GetJigglerState(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := c.Call(ctx, "getJigglerState", nil, &enabled)
+	return enabled, err
+}
+
+func (c *Client) SetJigglerState(ctx context.Context, enabled bool) error {
+	return c.Call(ctx, "setJigglerState", enabledStateRequest{Enabled: enabled}, nil)
+}
+
+func (c *Client) GetJigglerConfig(ctx context.Context) (JigglerConfig, error) {
+	var cfg JigglerConfig
+	err := c.Call(ctx, "getJigglerConfig", nil, &cfg)
+	return cfg, err
+}
+
+func (c *Client) SetJigglerConfig(ctx context.Context, cfg JigglerConfig) error {
+	return c.Call(ctx, "setJigglerConfig", jigglerConfigRequest{JigglerConfig: cfg}, nil)
 }
 
 func (c *Client) GetKeysDownState(ctx context.Context) (KeysDownState, error) {

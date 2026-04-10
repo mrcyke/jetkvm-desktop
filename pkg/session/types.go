@@ -50,6 +50,13 @@ type NetworkState struct {
 	DHCP     *bool
 }
 
+type JigglerConfig struct {
+	InactivityLimitSeconds int
+	JitterPercentage       int
+	ScheduleCronTab        string
+	Timezone               string
+}
+
 type VersionInfo struct {
 	AppVersion    string
 	SystemVersion string

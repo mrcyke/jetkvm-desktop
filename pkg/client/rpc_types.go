@@ -50,6 +50,13 @@ type DeveloperModeState struct {
 	Enabled bool `json:"enabled"`
 }
 
+type JigglerConfig struct {
+	InactivityLimitSeconds int    `json:"inactivity_limit_seconds"`
+	JitterPercentage       int    `json:"jitter_percentage"`
+	ScheduleCronTab        string `json:"schedule_cron_tab"`
+	Timezone               string `json:"timezone,omitempty"`
+}
+
 type KeysDownState struct {
 	Modifier byte   `json:"modifier"`
 	Keys     []byte `json:"keys"`
@@ -87,6 +94,14 @@ type setQualityRequest struct {
 
 type rebootRequest struct {
 	Force bool `json:"force"`
+}
+
+type enabledStateRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type jigglerConfigRequest struct {
+	JigglerConfig JigglerConfig `json:"jigglerConfig"`
 }
 
 type wheelReportRequest struct {

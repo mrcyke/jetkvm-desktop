@@ -66,10 +66,25 @@ type settingsSectionDef struct {
 }
 
 type sectionData struct {
+	General  generalState
+	Mouse    mouseState
 	Access   accessState
 	Hardware hardwareState
 	Network  networkState
 	Advanced advancedState
+}
+
+type generalState struct {
+	Loading    bool
+	Error      string
+	AutoUpdate *bool
+}
+
+type mouseState struct {
+	Loading        bool
+	Error          string
+	JigglerEnabled *bool
+	JigglerConfig  *session.JigglerConfig
 }
 
 type accessState struct {
@@ -151,7 +166,7 @@ func settingsSections(snap session.Snapshot) []settingsSectionDef {
 			id:          sectionHardware,
 			label:       "Hardware",
 			description: "Display rotation, brightness, USB gadget shape",
-			available:   false,
+			available:   true,
 			items: []string{
 				"Display rotation and backlight behavior",
 				"USB device classes and identifiers",
@@ -162,7 +177,7 @@ func settingsSections(snap session.Snapshot) []settingsSectionDef {
 			id:          sectionAccess,
 			label:       "Access",
 			description: "Local auth, TLS mode, cloud adoption",
-			available:   false,
+			available:   true,
 			items: []string{
 				"Local auth mode and password",
 				"HTTPS mode: disabled, self-signed, or custom TLS",
@@ -637,15 +652,22 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 	case sectionGeneral:
 		leftW := (w - 14) * 0.58
 		rightW := w - leftW - 14
-		descH := wrappedTextHeight("Reconnect the native session or force a device reboot.", rightW-32, 12)
-		rightH := 48 + descH + 20 + 30 + 8 + 30 + 18
+		descH := wrappedTextHeight("Reconnect the native session, manage auto-updates, or force a device reboot.", rightW-32, 12)
+		rightH := 48 + descH + 20 + 30 + 8 + 30 + 8 + 30 + 18
 		return max(214, rightH)
 	case sectionMouse:
 		leftW := (w - 14) * 0.54
 		rightW := w - leftW - 14
-		descH := wrappedTextHeight("Throttle local wheel bursts before sending them to the device.", rightW-32, 12)
-		rightH := 48 + descH + 20 + 30 + 8 + 30 + 18
-		return max(196, rightH)
+		descH := wrappedTextHeight("Throttle local wheel bursts before sending them to the device.", leftW-32, 12)
+		leftH := 48 + descH + 20 + 30 + 8 + 30 + 18
+		rightH := 244.0
+		a.mu.RLock()
+		state := a.sectionData.Mouse
+		a.mu.RUnlock()
+		if state.Error != "" {
+			rightH = max(rightH, 208+wrappedTextHeight(state.Error, rightW-32, 12)+24)
+		}
+		return max(leftH, rightH)
 	case sectionVideo:
 		leftW := (w - 14) * 0.48
 		rightW := w - leftW - 14
@@ -701,9 +723,9 @@ func (a *App) settingsWideBodyHeight(section settingsSection, w float64) float64
 		state := a.sectionData.Advanced
 		a.mu.RUnlock()
 		if state.Error == "" {
-			return 182
+			return 220
 		}
-		return max(182, 156+wrappedTextHeight(state.Error, w-32, 12)+24)
+		return max(220, 194+wrappedTextHeight(state.Error, w-32, 12)+24)
 	case sectionAppearance:
 		return max(330, 280+wrappedTextHeight("Position chooses where the chrome sits on screen. Layout changes whether the control buttons run across or down.", w-32, 12)+24)
 	default:
@@ -778,6 +800,12 @@ func (a *App) markSettingsSectionLoading(section settingsSection) uint64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	switch section {
+	case sectionGeneral:
+		a.sectionData.General.Loading = true
+		a.sectionData.General.Error = ""
+	case sectionMouse:
+		a.sectionData.Mouse.Loading = true
+		a.sectionData.Mouse.Error = ""
 	case sectionAccess:
 		a.sectionData.Access.Loading = true
 		a.sectionData.Access.Error = ""
@@ -800,6 +828,37 @@ func (a *App) loadSettingsSection(section settingsSection, seq uint64) error {
 
 	var err error
 	switch section {
+	case sectionGeneral:
+		state := generalState{Loading: false}
+		if enabled, callErr := a.ctrl.GetAutoUpdateState(ctx); callErr == nil {
+			state.AutoUpdate = &enabled
+		}
+		if state.AutoUpdate == nil {
+			state.Error = "No general RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.General = state
+		}
+		a.mu.Unlock()
+	case sectionMouse:
+		state := mouseState{Loading: false}
+		if enabled, callErr := a.ctrl.GetJigglerState(ctx); callErr == nil {
+			state.JigglerEnabled = &enabled
+		}
+		if cfg, callErr := a.ctrl.GetJigglerConfig(ctx); callErr == nil {
+			state.JigglerConfig = &cfg
+		}
+		if state.JigglerEnabled == nil && state.JigglerConfig == nil {
+			state.Error = "No mouse RPC state available on this target"
+			err = errors.New(state.Error)
+		}
+		a.mu.Lock()
+		if a.sectionLoadSeq[section] == seq {
+			a.sectionData.Mouse = state
+		}
+		a.mu.Unlock()
 	case sectionAccess:
 		state := accessState{Loading: false}
 		if cloud, callErr := a.ctrl.GetCloudState(ctx); callErr == nil {
@@ -958,6 +1017,9 @@ func (a *App) drawSettingsActionStatus(screen *ebiten.Image, group settingsActio
 }
 
 func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
+	a.mu.RLock()
+	state := a.sectionData.General
+	a.mu.RUnlock()
 	leftW := (w - 14) * 0.58
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
@@ -974,12 +1036,28 @@ func (a *App) drawSettingsGeneral(screen *ebiten.Image, snap session.Snapshot, x
 	}
 	drawSettingsKeyValue(screen, "Updates", updateLabel, x+16, y+184, 116)
 	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Actions", "")
-	drawWrappedText(screen, "Reconnect the native session or force a device reboot.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	drawWrappedText(screen, "Reconnect the native session, manage auto-updates, or force a device reboot.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
 	a.drawSettingsAction(screen, "reconnect", reconnectLabel(snap.Phase), rightX+16, y+98, rightW-32, settingsActionVisual{Enabled: true})
 	a.drawSettingsAction(screen, "reboot", "Reboot device", rightX+16, y+136, rightW-32, settingsActionVisual{Enabled: snap.Phase != session.PhaseConnecting})
+	autoUpdate := a.settingsAction(settingsGroupAutoUpdate)
+	drawSettingsSectionLabel(screen, "Auto updates", rightX+16, y+184)
+	if state.Loading {
+		drawText(screen, "Loading…", rightX+120, y+184, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	} else {
+		drawSettingsKeyValue(screen, "State", boolPtrWord(state.AutoUpdate), rightX+16, y+206, 56)
+		a.drawSettingsAction(screen, "auto_update_on", "Enabled", rightX+16, y+228, 92, settingsActionVisual{Enabled: state.AutoUpdate != nil && (!autoUpdate.Pending || autoUpdate.PendingChoice == "on"), Active: state.AutoUpdate != nil && *state.AutoUpdate, Pending: autoUpdate.Pending && autoUpdate.PendingChoice == "on"})
+		a.drawSettingsAction(screen, "auto_update_off", "Disabled", rightX+120, y+228, 94, settingsActionVisual{Enabled: state.AutoUpdate != nil && (!autoUpdate.Pending || autoUpdate.PendingChoice == "off"), Active: state.AutoUpdate != nil && !*state.AutoUpdate, Pending: autoUpdate.Pending && autoUpdate.PendingChoice == "off"})
+		a.drawSettingsActionStatus(screen, settingsGroupAutoUpdate, rightX+16, y+266, rightW-32)
+	}
+	if state.Error != "" {
+		drawWrappedText(screen, state.Error, rightX+16, y+266, rightW-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+	}
 }
 
 func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
+	a.mu.RLock()
+	state := a.sectionData.Mouse
+	a.mu.RUnlock()
 	leftW := (w - 14) * 0.54
 	rightX := x + leftW + 14
 	rightW := w - leftW - 14
@@ -990,13 +1068,30 @@ func (a *App) drawSettingsMouse(screen *ebiten.Image, snap session.Snapshot, x, 
 	a.drawSettingsAction(screen, "mouse_relative", "Relative", x+138, y+66, 110, settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative})
 	drawSettingsSectionLabel(screen, "Local cursor", x+16, y+114)
 	a.drawSettingsAction(screen, "mouse_hide_cursor", "Hide Host Cursor", x+16, y+132, 154, settingsActionVisual{Enabled: true, Active: a.hideCursor})
-	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Wheel", "")
-	drawWrappedText(screen, "Throttle local wheel bursts before sending them to the device.", rightX+16, y+48, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
-	a.drawSettingsAction(screen, "scroll_0", "Off", rightX+16, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0})
-	a.drawSettingsAction(screen, "scroll_10", "Low", rightX+92, y+98, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_25", "Medium", rightX+168, y+98, 84, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_50", "High", rightX+16, y+136, 72, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond})
-	a.drawSettingsAction(screen, "scroll_100", "Very High", rightX+100, y+136, 108, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond})
+	drawSettingsSectionLabel(screen, "Wheel", x+16, y+180)
+	drawWrappedText(screen, "Throttle local wheel bursts before sending them to the device.", x+16, y+198, leftW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+	a.drawSettingsAction(screen, "scroll_0", "Off", x+16, y+248, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 0})
+	a.drawSettingsAction(screen, "scroll_10", "Low", x+92, y+248, 64, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 10*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_25", "Medium", x+168, y+248, 84, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 25*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_50", "High", x+264, y+248, 72, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 50*time.Millisecond})
+	a.drawSettingsAction(screen, "scroll_100", "Very High", x+348, y+248, 108, settingsActionVisual{Enabled: true, Active: a.scrollThrottle == 100*time.Millisecond})
+	a.drawSettingsCard(screen, rightX, y, rightW, cardH, "Jiggler", "")
+	if state.Loading {
+		drawText(screen, "Loading jiggler state…", rightX+16, y+48, 13, color.RGBA{R: 236, G: 241, B: 245, A: 255})
+	} else {
+		drawSettingsKeyValue(screen, "State", boolPtrWord(state.JigglerEnabled), rightX+16, y+48, 70)
+		drawSettingsKeyValue(screen, "Preset", jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig), rightX+16, y+74, 70)
+		drawWrappedText(screen, "Use simple native presets that match the device jiggler configuration without exposing the full cron editor.", rightX+16, y+106, rightW-32, 12, color.RGBA{R: 166, G: 178, B: 190, A: 255})
+		jiggler := a.settingsAction(settingsGroupJiggler)
+		a.drawSettingsAction(screen, "jiggler_disabled", "Disabled", rightX+16, y+156, 88, settingsActionVisual{Enabled: state.JigglerEnabled != nil && (!jiggler.Pending || jiggler.PendingChoice == "disabled"), Active: state.JigglerEnabled != nil && !*state.JigglerEnabled, Pending: jiggler.Pending && jiggler.PendingChoice == "disabled"})
+		a.drawSettingsAction(screen, "jiggler_frequent", "Frequent", rightX+116, y+156, 88, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "frequent", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Frequent", Pending: jiggler.Pending && jiggler.PendingChoice == "frequent"})
+		a.drawSettingsAction(screen, "jiggler_standard", "Standard", rightX+216, y+156, 88, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "standard", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Standard", Pending: jiggler.Pending && jiggler.PendingChoice == "standard"})
+		a.drawSettingsAction(screen, "jiggler_light", "Light", rightX+16, y+194, 72, settingsActionVisual{Enabled: !jiggler.Pending || jiggler.PendingChoice == "light", Active: jigglerPresetLabel(state.JigglerEnabled, state.JigglerConfig) == "Light", Pending: jiggler.Pending && jiggler.PendingChoice == "light"})
+		a.drawSettingsActionStatus(screen, settingsGroupJiggler, rightX+16, y+232, rightW-32)
+	}
+	if state.Error != "" {
+		drawWrappedText(screen, state.Error, rightX+16, y+232, rightW-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+	}
 }
 
 func (a *App) drawSettingsKeyboard(screen *ebiten.Image, snap session.Snapshot, x, y, w float64) {
@@ -1180,8 +1275,14 @@ func (a *App) drawSettingsAdvanced(screen *ebiten.Image, x, y, w float64) {
 	drawSettingsKeyValue(screen, "USB Emulation", boolPtrWord(state.State.USBEmulation), x+16, y+74, 128)
 	drawSettingsKeyValue(screen, "App Version", state.State.Version.AppVersion, x+16, y+106, 128)
 	drawSettingsKeyValue(screen, "System Version", state.State.Version.SystemVersion, x+16, y+132, 128)
+	if state.State.DevMode != nil {
+		devModeState := a.settingsAction(settingsGroupDeveloperMode)
+		a.drawSettingsAction(screen, "developer_mode_on", "Developer Mode On", x+16, y+166, 156, settingsActionVisual{Enabled: !devModeState.Pending || devModeState.PendingChoice == "on", Active: *state.State.DevMode, Pending: devModeState.Pending && devModeState.PendingChoice == "on"})
+		a.drawSettingsAction(screen, "developer_mode_off", "Developer Mode Off", x+184, y+166, 160, settingsActionVisual{Enabled: !devModeState.Pending || devModeState.PendingChoice == "off", Active: !*state.State.DevMode, Pending: devModeState.Pending && devModeState.PendingChoice == "off"})
+		a.drawSettingsActionStatus(screen, settingsGroupDeveloperMode, x+16, y+204, w-32)
+	}
 	if state.Error != "" {
-		drawWrappedText(screen, state.Error, x+16, y+156, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
+		drawWrappedText(screen, state.Error, x+16, y+204, w-32, 12, color.RGBA{R: 220, G: 132, B: 132, A: 255})
 	}
 }
 
@@ -1235,6 +1336,25 @@ func usbConfigLabel(cfg session.USBConfig) string {
 		return ""
 	}
 	return fmt.Sprintf("%s / %s", cfg.VendorID, cfg.ProductID)
+}
+
+func jigglerPresetLabel(enabled *bool, cfg *session.JigglerConfig) string {
+	if enabled != nil && !*enabled {
+		return "Disabled"
+	}
+	if cfg == nil {
+		return "Unavailable"
+	}
+	switch {
+	case cfg.InactivityLimitSeconds == 30 && cfg.JitterPercentage == 25 && cfg.ScheduleCronTab == "*/30 * * * * *":
+		return "Frequent"
+	case cfg.InactivityLimitSeconds == 60 && cfg.JitterPercentage == 25 && cfg.ScheduleCronTab == "0 * * * * *":
+		return "Standard"
+	case cfg.InactivityLimitSeconds == 300 && cfg.JitterPercentage == 25 && cfg.ScheduleCronTab == "0 */5 * * * *":
+		return "Light"
+	default:
+		return "Custom"
+	}
 }
 
 func usbDevicesSummary(count int) string {

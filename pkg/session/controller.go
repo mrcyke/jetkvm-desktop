@@ -444,6 +444,108 @@ func (c *Controller) GetLocalVersion(ctx context.Context) (VersionInfo, error) {
 	}, nil
 }
 
+func (c *Controller) GetAutoUpdateState(ctx context.Context) (bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return false, errors.New("client not connected")
+	}
+	return current.GetAutoUpdateState(ctx)
+}
+
+func (c *Controller) SetAutoUpdateState(enabled bool) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetAutoUpdateState(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetAutoUpdateState(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current == enabled, nil
+	})
+}
+
+func (c *Controller) SetDeveloperModeState(enabled bool) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetDeveloperModeState(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetDeveloperModeState(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current != nil && *current == enabled, nil
+	})
+}
+
+func (c *Controller) GetJigglerState(ctx context.Context) (bool, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return false, errors.New("client not connected")
+	}
+	return current.GetJigglerState(ctx)
+}
+
+func (c *Controller) SetJigglerState(enabled bool) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetJigglerState(ctx, enabled)
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetJigglerState(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current == enabled, nil
+	})
+}
+
+func (c *Controller) GetJigglerConfig(ctx context.Context) (JigglerConfig, error) {
+	current := c.clientIfConnected()
+	if current == nil {
+		return JigglerConfig{}, errors.New("client not connected")
+	}
+	cfg, err := current.GetJigglerConfig(ctx)
+	if err != nil {
+		return JigglerConfig{}, err
+	}
+	return JigglerConfig{
+		InactivityLimitSeconds: cfg.InactivityLimitSeconds,
+		JitterPercentage:       cfg.JitterPercentage,
+		ScheduleCronTab:        cfg.ScheduleCronTab,
+		Timezone:               cfg.Timezone,
+	}, nil
+}
+
+func (c *Controller) SetJigglerConfig(cfg JigglerConfig) error {
+	return c.mutateAndConfirm(func(ctx context.Context) error {
+		current := c.clientIfConnected()
+		if current == nil {
+			return errors.New("client not connected")
+		}
+		return current.SetJigglerConfig(ctx, client.JigglerConfig{
+			InactivityLimitSeconds: cfg.InactivityLimitSeconds,
+			JitterPercentage:       cfg.JitterPercentage,
+			ScheduleCronTab:        cfg.ScheduleCronTab,
+			Timezone:               cfg.Timezone,
+		})
+	}, func(ctx context.Context) (bool, error) {
+		current, err := c.GetJigglerConfig(ctx)
+		if err != nil {
+			return false, err
+		}
+		return current == cfg, nil
+	})
+}
+
 func (c *Controller) GetVirtualMediaState(ctx context.Context) (*virtualmedia.State, error) {
 	current := c.clientIfConnected()
 	if current == nil {

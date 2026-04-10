@@ -138,6 +138,9 @@ const (
 	settingsGroupTLSMode                                   // tls_mode
 	settingsGroupDisplayRotate                             // display_rotation
 	settingsGroupUSBEmulation                              // usb_emulation
+	settingsGroupAutoUpdate                                // auto_update
+	settingsGroupDeveloperMode                             // developer_mode
+	settingsGroupJiggler                                   // jiggler
 )
 
 type settingsActionState struct {
@@ -1056,6 +1059,66 @@ func (a *App) invokeAction(id string) {
 			}
 			return a.refreshSettingsSectionSync(sectionHardware)
 		})
+	case "auto_update_on":
+		if a.settingsActionPending(settingsGroupAutoUpdate) {
+			return
+		}
+		a.withSettingsAction(settingsGroupAutoUpdate, "on", func() error {
+			if err := a.ctrl.SetAutoUpdateState(true); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionGeneral)
+		})
+	case "auto_update_off":
+		if a.settingsActionPending(settingsGroupAutoUpdate) {
+			return
+		}
+		a.withSettingsAction(settingsGroupAutoUpdate, "off", func() error {
+			if err := a.ctrl.SetAutoUpdateState(false); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionGeneral)
+		})
+	case "developer_mode_on":
+		if a.settingsActionPending(settingsGroupDeveloperMode) {
+			return
+		}
+		a.withSettingsAction(settingsGroupDeveloperMode, "on", func() error {
+			if err := a.ctrl.SetDeveloperModeState(true); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionAdvanced)
+		})
+	case "developer_mode_off":
+		if a.settingsActionPending(settingsGroupDeveloperMode) {
+			return
+		}
+		a.withSettingsAction(settingsGroupDeveloperMode, "off", func() error {
+			if err := a.ctrl.SetDeveloperModeState(false); err != nil {
+				return err
+			}
+			return a.refreshSettingsSectionSync(sectionAdvanced)
+		})
+	case "jiggler_disabled":
+		a.invokeJigglerPresetAction("disabled", false, session.JigglerConfig{})
+	case "jiggler_frequent":
+		a.invokeJigglerPresetAction("frequent", true, session.JigglerConfig{
+			InactivityLimitSeconds: 30,
+			JitterPercentage:       25,
+			ScheduleCronTab:        "*/30 * * * * *",
+		})
+	case "jiggler_standard":
+		a.invokeJigglerPresetAction("standard", true, session.JigglerConfig{
+			InactivityLimitSeconds: 60,
+			JitterPercentage:       25,
+			ScheduleCronTab:        "0 * * * * *",
+		})
+	case "jiggler_light":
+		a.invokeJigglerPresetAction("light", true, session.JigglerConfig{
+			InactivityLimitSeconds: 300,
+			JitterPercentage:       25,
+			ScheduleCronTab:        "0 */5 * * * *",
+		})
 	case "layout:en-US":
 		a.invokeKeyboardLayoutAction("en-US")
 	case "layout:en-UK":
@@ -1094,6 +1157,23 @@ func (a *App) invokeKeyboardLayoutAction(layout string) {
 	}
 	a.withSettingsAction(settingsGroupKeyboardLayout, layout, func() error {
 		return a.ctrl.SetKeyboardLayout(layout)
+	})
+}
+
+func (a *App) invokeJigglerPresetAction(choice string, enabled bool, cfg session.JigglerConfig) {
+	if a.settingsActionPending(settingsGroupJiggler) {
+		return
+	}
+	a.withSettingsAction(settingsGroupJiggler, choice, func() error {
+		if enabled {
+			if err := a.ctrl.SetJigglerConfig(cfg); err != nil {
+				return err
+			}
+		}
+		if err := a.ctrl.SetJigglerState(enabled); err != nil {
+			return err
+		}
+		return a.refreshSettingsSectionSync(sectionMouse)
 	})
 }
 

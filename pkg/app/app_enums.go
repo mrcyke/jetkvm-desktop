@@ -107,11 +107,11 @@ func (i *launcherMode) UnmarshalText(text []byte) error {
 	return err
 }
 
-const _settingsActionGroupName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulation"
+const _settingsActionGroupName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationauto_updatedeveloper_modejiggler"
 
-var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 36, 52, 65}
+var _settingsActionGroupIndex = [...]uint8{0, 15, 28, 36, 52, 65, 76, 90, 97}
 
-const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulation"
+const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualitytls_modedisplay_rotationusb_emulationauto_updatedeveloper_modejiggler"
 
 func (i settingsActionGroup) String() string {
 	if i >= settingsActionGroup(len(_settingsActionGroupIndex)-1) {
@@ -129,9 +129,12 @@ func _settingsActionGroupNoOp() {
 	_ = x[settingsGroupTLSMode-(2)]
 	_ = x[settingsGroupDisplayRotate-(3)]
 	_ = x[settingsGroupUSBEmulation-(4)]
+	_ = x[settingsGroupAutoUpdate-(5)]
+	_ = x[settingsGroupDeveloperMode-(6)]
+	_ = x[settingsGroupJiggler-(7)]
 }
 
-var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupUSBEmulation}
+var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupUSBEmulation, settingsGroupAutoUpdate, settingsGroupDeveloperMode, settingsGroupJiggler}
 
 var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupName[0:15]:       settingsGroupKeyboardLayout,
@@ -144,6 +147,12 @@ var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupLowerName[36:52]: settingsGroupDisplayRotate,
 	_settingsActionGroupName[52:65]:      settingsGroupUSBEmulation,
 	_settingsActionGroupLowerName[52:65]: settingsGroupUSBEmulation,
+	_settingsActionGroupName[65:76]:      settingsGroupAutoUpdate,
+	_settingsActionGroupLowerName[65:76]: settingsGroupAutoUpdate,
+	_settingsActionGroupName[76:90]:      settingsGroupDeveloperMode,
+	_settingsActionGroupLowerName[76:90]: settingsGroupDeveloperMode,
+	_settingsActionGroupName[90:97]:      settingsGroupJiggler,
+	_settingsActionGroupLowerName[90:97]: settingsGroupJiggler,
 }
 
 var _settingsActionGroupNames = []string{
@@ -152,6 +161,9 @@ var _settingsActionGroupNames = []string{
 	_settingsActionGroupName[28:36],
 	_settingsActionGroupName[36:52],
 	_settingsActionGroupName[52:65],
+	_settingsActionGroupName[65:76],
+	_settingsActionGroupName[76:90],
+	_settingsActionGroupName[90:97],
 }
 
 // settingsActionGroupString retrieves an enum value from the enum constants string name.
