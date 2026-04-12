@@ -586,15 +586,15 @@ func (settingsOverlayRootElement) Measure(_ *ui.Context, constraints ui.Constrai
 
 func (e settingsOverlayRootElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	ui.Stack{Children: []ui.Element{
-		ui.Backdrop{Color: color.RGBA{A: 170}},
+		ui.Backdrop{Color: ctx.Theme.Backdrop},
 		ui.Positioned{
 			X: e.outerRect.X,
 			Y: e.outerRect.Y,
 			W: e.outerRect.W,
 			H: e.outerRect.H,
 			Child: ui.Panel{
-				Fill:   color.RGBA{R: 13, G: 20, B: 30, A: 246},
-				Stroke: color.RGBA{R: 88, G: 102, B: 118, A: 180},
+				Fill:   ctx.Theme.ModalFill,
+				Stroke: ctx.Theme.ModalStroke,
 				Child:  e.child,
 			},
 		},
@@ -693,7 +693,8 @@ func (e settingsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 					MinW: e.sidebarW,
 					MaxW: e.sidebarW,
 					Child: ui.Panel{
-						Fill:   color.RGBA{R: 18, G: 28, B: 40, A: 255},
+						Fill:   ctx.Theme.SectionFill,
+						Stroke: ctx.Theme.SectionStroke,
 						Insets: ui.Insets{Top: 16, Right: 10, Bottom: 18, Left: 10},
 						Child: settingsSidebarElement{
 							app:      e.app,
@@ -761,12 +762,12 @@ func (e settingsSidebarElement) Measure(_ *ui.Context, constraints ui.Constraint
 func (e settingsSidebarElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	sideBtnH, sideGap, _ := settingsSidebarMetrics(e.panelH, len(e.sections))
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Settings", Size: 20, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+		ui.Fixed(ui.Label{Text: "Settings", Size: 20, Color: ctx.Theme.Title}),
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.Paragraph{
 			Text:  fallbackLabel(e.snap.DeviceID, e.snap.Hostname, e.snap.BaseURL),
 			Size:  11,
-			Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+			Color: ctx.Theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
 	}
@@ -802,17 +803,29 @@ func (e settingsSidebarButtonElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	}.Draw(ctx, bounds)
 }
 
+type settingsHeaderBlock struct {
+	title       string
+	description string
+}
+
+func (e settingsHeaderBlock) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	return ui.Column{Children: []ui.Child{
+		ui.Fixed(ui.Label{Text: e.title, Size: 22, Color: ctx.Theme.Title}),
+		ui.Fixed(ui.Spacer{H: 6}),
+		ui.Fixed(ui.Constrained{MaxW: 640, Child: ui.Paragraph{Text: e.description, Size: 12, Color: ctx.Theme.Muted}}),
+	}}.Measure(ctx, constraints)
+}
+
+func (e settingsHeaderBlock) Draw(ctx *ui.Context, bounds ui.Rect) {
+	ui.Column{Children: []ui.Child{
+		ui.Fixed(ui.Label{Text: e.title, Size: 22, Color: ctx.Theme.Title}),
+		ui.Fixed(ui.Spacer{H: 6}),
+		ui.Fixed(ui.Constrained{MaxW: 640, Child: ui.Paragraph{Text: e.description, Size: 12, Color: ctx.Theme.Muted}}),
+	}}.Draw(ctx, bounds)
+}
+
 func settingsHeaderElement(title, description string) ui.Element {
-	return ui.Column{
-		Children: []ui.Child{
-			ui.Fixed(ui.Label{Text: title, Size: 22, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
-			ui.Fixed(ui.Spacer{H: 6}),
-			ui.Fixed(ui.Constrained{
-				MaxW:  640,
-				Child: ui.Paragraph{Text: description, Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}},
-			}),
-		},
-	}
+	return settingsHeaderBlock{title: title, description: description}
 }
 
 func (a *App) settingsPanelHeight(section settingsSectionDef, contentW float64) float64 {
@@ -1140,26 +1153,40 @@ func (a *App) measureSettingsBody(body ui.Element, width float64) float64 {
 	return size.H
 }
 
-func settingsCardElement(title string, body ui.Element) ui.Element {
+type settingsCardBlock struct {
+	title string
+	body  ui.Element
+}
+
+func (e settingsCardBlock) bodyElement(ctx *ui.Context) ui.Element {
 	children := make([]ui.Child, 0, 3)
-	if title != "" {
+	if e.title != "" {
 		children = append(children,
-			ui.Fixed(ui.Label{Text: title, Size: 15, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+			ui.Fixed(ui.Label{Text: e.title, Size: 15, Color: ctx.Theme.Title}),
 			ui.Fixed(ui.Spacer{H: 12}),
 		)
 	}
-	if body != nil {
-		children = append(children, ui.Fixed(body))
+	if e.body != nil {
+		children = append(children, ui.Fixed(e.body))
 	}
 	return ui.Panel{
-		Fill:   color.RGBA{R: 18, G: 28, B: 40, A: 255},
-		Stroke: color.RGBA{R: 54, G: 68, B: 84, A: 180},
+		Fill:   ctx.Theme.PanelFill,
+		Stroke: ctx.Theme.PanelStroke,
 		Insets: ui.UniformInsets(16),
-		Child: ui.Column{
-			Children: children,
-			Spacing:  0,
-		},
+		Child:  ui.Column{Children: children},
 	}
+}
+
+func (e settingsCardBlock) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	return e.bodyElement(ctx).Measure(ctx, constraints)
+}
+
+func (e settingsCardBlock) Draw(ctx *ui.Context, bounds ui.Rect) {
+	e.bodyElement(ctx).Draw(ctx, bounds)
+}
+
+func settingsCardElement(title string, body ui.Element) ui.Element {
+	return settingsCardBlock{title: title, body: body}
 }
 
 func settingsActionElement(id, label string, visual settingsActionVisual, width float64) ui.Element {
@@ -1182,15 +1209,33 @@ func settingsToggleElement(id string, visual settingsActionVisual) ui.Element {
 	}
 }
 
-func settingsToggleRowElement(id, label string, visual settingsActionVisual) ui.Element {
+type settingsToggleRow struct {
+	id     string
+	label  string
+	visual settingsActionVisual
+}
+
+func (e settingsToggleRow) row(ctx *ui.Context) ui.Element {
 	return ui.Row{
 		AlignY: ui.AlignCenter,
 		Children: []ui.Child{
-			ui.Fixed(settingsToggleElement(id, visual)),
+			ui.Fixed(settingsToggleElement(e.id, e.visual)),
 			ui.Fixed(ui.Spacer{W: 12}),
-			ui.Flex(ui.Label{Text: label, Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}, 1),
+			ui.Flex(ui.Label{Text: e.label, Size: 13, Color: ctx.Theme.Body}, 1),
 		},
 	}
+}
+
+func (e settingsToggleRow) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	return e.row(ctx).Measure(ctx, constraints)
+}
+
+func (e settingsToggleRow) Draw(ctx *ui.Context, bounds ui.Rect) {
+	e.row(ctx).Draw(ctx, bounds)
+}
+
+func settingsToggleRowElement(id, label string, visual settingsActionVisual) ui.Element {
+	return settingsToggleRow{id: id, label: label, visual: visual}
 }
 
 func settingsStatusElement(text string, clr color.Color) ui.Element {
@@ -1200,8 +1245,20 @@ func settingsStatusElement(text string, clr color.Color) ui.Element {
 	return ui.Paragraph{Text: text, Size: 12, Color: clr}
 }
 
+type settingsSectionLabel struct {
+	label string
+}
+
+func (e settingsSectionLabel) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
+	return ui.Label{Text: e.label, Size: 12, Color: ctx.Theme.Muted}.Measure(ctx, constraints)
+}
+
+func (e settingsSectionLabel) Draw(ctx *ui.Context, bounds ui.Rect) {
+	ui.Label{Text: e.label, Size: 12, Color: ctx.Theme.Muted}.Draw(ctx, bounds)
+}
+
 func settingsSectionLabelElement(label string) ui.Element {
-	return ui.Label{Text: label, Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}
+	return settingsSectionLabel{label: label}
 }
 
 func settingsKeyValueElement(label, value string, split float64) ui.Element {
@@ -1239,7 +1296,7 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Paragraph{
 			Text:  "Throttle local wheel bursts before sending them to the device.",
 			Size:  12,
-			Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+			Color: a.currentTheme().Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(ui.Wrap{
@@ -1260,7 +1317,7 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 	rightChildren := []ui.Child{}
 	if state.Loading {
 		rightChildren = append(rightChildren,
-			ui.Fixed(ui.Label{Text: "Loading jiggler state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+			ui.Fixed(ui.Label{Text: "Loading jiggler state…", Size: 13, Color: a.currentTheme().Body}),
 		)
 	} else {
 		rightChildren = append(rightChildren,
@@ -1271,7 +1328,7 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 			ui.Fixed(ui.Paragraph{
 				Text:  "Use native presets or open a compact custom editor for the device jiggler schedule.",
 				Size:  12,
-				Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+				Color: a.currentTheme().Muted,
 			}),
 			ui.Fixed(ui.Spacer{H: 14}),
 			ui.Fixed(ui.Wrap{
@@ -1335,13 +1392,13 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 			)
 		}
 		statusText := ""
-		statusColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		statusColor := a.currentTheme().WarningStroke
 		switch {
 		case jiggler.Pending:
 			statusText = "Applying…"
 		case jiggler.Error != "":
 			statusText = jiggler.Error
-			statusColor = color.RGBA{R: 220, G: 132, B: 132, A: 255}
+			statusColor = a.currentTheme().Error
 		}
 		if statusText != "" {
 			rightChildren = append(rightChildren,
@@ -1352,14 +1409,14 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 		if a.jigglerEditorError != "" {
 			rightChildren = append(rightChildren,
 				ui.Fixed(ui.Spacer{H: 12}),
-				ui.Fixed(settingsStatusElement(a.jigglerEditorError, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+				ui.Fixed(settingsStatusElement(a.jigglerEditorError, a.currentTheme().Error)),
 			)
 		}
 	}
 	if state.Error != "" {
 		rightChildren = append(rightChildren,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+			ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)),
 		)
 	}
 
@@ -1452,18 +1509,18 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 	updateState := a.settingsAction(settingsGroupUpdateStatus)
 	switch {
 	case updateState.Pending:
-		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Refreshing…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Refreshing…", a.currentTheme().WarningStroke)))
 	case updateState.Error != "":
-		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(updateState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(updateState.Error, a.currentTheme().Error)))
 	}
 	installState := a.settingsAction(settingsGroupUpdateInstall)
 	switch {
 	case installState.Pending:
-		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Starting update…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Starting update…", a.currentTheme().WarningStroke)))
 	case installState.Error != "":
-		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(installState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(installState.Error, a.currentTheme().Error)))
 	case a.updateActionMessage != "":
-		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		msgColor := a.currentTheme().WarningStroke
 		if a.updateActionSuccess {
 			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 		}
@@ -1472,7 +1529,7 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 	updatesCard := settingsCardElement("Updates", ui.Column{Children: updateChildren})
 	autoUpdate := a.settingsAction(settingsGroupAutoUpdate)
 	actionChildren := []ui.Child{
-		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session, manage auto-updates, or force a device reboot.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session, manage auto-updates, or force a device reboot.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsActionElement("reconnect", reconnectLabel(snap.Phase), settingsActionVisual{Enabled: true}, 0)),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1482,7 +1539,7 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 8}),
 	}
 	if state.Loading {
-		actionChildren = append(actionChildren, ui.Fixed(ui.Label{Text: "Loading…", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		actionChildren = append(actionChildren, ui.Fixed(ui.Label{Text: "Loading…", Size: 12, Color: a.currentTheme().Muted}))
 	} else {
 		actionChildren = append(actionChildren,
 			ui.Fixed(ui.Row{AlignY: ui.AlignCenter, Children: []ui.Child{
@@ -1492,18 +1549,18 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 					Pending: autoUpdate.Pending,
 				})),
 				ui.Fixed(ui.Spacer{W: 12}),
-				ui.Fixed(ui.Label{Text: "Enabled", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+				ui.Fixed(ui.Label{Text: "Enabled", Size: 13, Color: a.currentTheme().Body}),
 			}}),
 		)
 		switch {
 		case autoUpdate.Pending:
-			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 		case autoUpdate.Error != "":
-			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(autoUpdate.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(autoUpdate.Error, a.currentTheme().Error)))
 		}
 	}
 	if state.Error != "" {
-		actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 	actionsCard := settingsCardElement("Actions", ui.Column{Children: actionChildren})
 	return ui.Column{
@@ -1535,7 +1592,7 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 		}, btnW))
 	}
 	children := []ui.Child{
-		ui.Fixed(ui.Paragraph{Text: "This layout affects paste and keyboard macros. Live typing is sent as physical HID keys.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "This layout affects paste and keyboard macros. Live typing is sent as physical HID keys.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(ui.Row{Children: []ui.Child{
 			ui.Fixed(settingsKeyValueElement("Active layout", keyboardLayoutLabel(layout), 118)),
@@ -1550,13 +1607,13 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 	}
 	switch {
 	case layoutState.Pending:
-		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 	case layoutState.Error != "":
-		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(layoutState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(layoutState.Error, a.currentTheme().Error)))
 	}
 	children = append(children,
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(ui.Paragraph{Text: "Make this match the remote OS only for pasted text and macros.", Size: 13, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "Make this match the remote OS only for pasted text and macros.", Size: 13, Color: a.currentTheme().Muted}),
 	)
 	return settingsCardElement("", ui.Column{Children: children})
 }
@@ -1575,7 +1632,7 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 			settingsActionElement("quality_preset_low", "Low", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "low"), Active: snap.Quality < 0.45, Pending: qualityState.Pending && qualityState.PendingChoice == "low"}, 96),
 		}, Spacing: 12, LineSpacing: 8}),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(ui.Label{Text: fmt.Sprintf("Current factor %.2f", snap.Quality), Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Label{Text: fmt.Sprintf("Current factor %.2f", snap.Quality), Size: 13, Color: a.currentTheme().Body}),
 	}
 	codecState := a.settingsAction(settingsGroupVideoCodec)
 	streamChildren = append(streamChildren,
@@ -1590,15 +1647,15 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 	)
 	switch {
 	case qualityState.Pending:
-		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 	case qualityState.Error != "":
-		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(qualityState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(qualityState.Error, a.currentTheme().Error)))
 	}
 	switch {
 	case codecState.Pending:
-		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating codec…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating codec…", a.currentTheme().WarningStroke)))
 	case codecState.Error != "":
-		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(codecState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		streamChildren = append(streamChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(codecState.Error, a.currentTheme().Error)))
 	}
 	edid := state.State.EDID
 	if edid == "" {
@@ -1609,7 +1666,7 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 	}
 	edidState := a.settingsAction(settingsGroupVideoEDID)
 	edidChildren := []ui.Child{
-		ui.Fixed(ui.Paragraph{Text: edid, Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: edid, Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Presets")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1623,7 +1680,7 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 16}),
 		ui.Fixed(settingsSectionLabelElement("Custom EDID")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: pemSummary(a.videoCustomEDID), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: pemSummary(a.videoCustomEDID), Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
 			settingsActionElement("video_edid_load_custom", "Load from Clipboard", settingsActionVisual{Enabled: !edidState.Pending}, 146),
@@ -1633,12 +1690,12 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 	}
 	switch {
 	case edidState.Pending:
-		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying EDID…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying EDID…", a.currentTheme().WarningStroke)))
 	case edidState.Error != "":
-		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(edidState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		edidChildren = append(edidChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(edidState.Error, a.currentTheme().Error)))
 	}
 	if a.videoCustomEDIDMessage != "" {
-		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		msgColor := a.currentTheme().WarningStroke
 		if a.videoCustomEDIDSuccess {
 			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 		}
@@ -1658,7 +1715,7 @@ func (a *App) settingsHardwareBody() ui.Element {
 	a.mu.RUnlock()
 	if state.Loading {
 		return settingsTwoPane(
-			settingsCardElement("Display", ui.Label{Text: "Loading hardware state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+			settingsCardElement("Display", ui.Label{Text: "Loading hardware state…", Size: 13, Color: a.currentTheme().Body}),
 			48,
 			settingsCardElement("USB", ui.Spacer{}),
 			52,
@@ -1668,7 +1725,7 @@ func (a *App) settingsHardwareBody() ui.Element {
 	displayChildren := []ui.Child{
 		ui.Fixed(settingsKeyValueElement("Rotation", string(state.State.DisplayRotation), 86)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(ui.Paragraph{Text: "Rotate the JetKVM device display. This does not rotate the remote host video feed.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "Rotate the JetKVM device display. This does not rotate the remote host video feed.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
 			settingsActionElement("rotate_normal", "Normal", settingsActionVisual{Enabled: state.State.DisplayRotation != session.DisplayRotationUnknown && (!rotateState.Pending || rotateState.PendingChoice == "270"), Active: state.State.DisplayRotation == session.DisplayRotationNormal, Pending: rotateState.Pending && rotateState.PendingChoice == "270"}, 88),
@@ -1710,15 +1767,15 @@ func (a *App) settingsHardwareBody() ui.Element {
 	)
 	switch {
 	case rotateState.Pending:
-		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 	case rotateState.Error != "":
-		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(rotateState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(rotateState.Error, a.currentTheme().Error)))
 	}
 	switch {
 	case backlightState.Pending:
-		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating display settings…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Updating display settings…", a.currentTheme().WarningStroke)))
 	case backlightState.Error != "":
-		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(backlightState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		displayChildren = append(displayChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(backlightState.Error, a.currentTheme().Error)))
 	}
 	usbState := a.settingsAction(settingsGroupUSBEmulation)
 	usbDevicesState := a.settingsAction(settingsGroupUSBDevices)
@@ -1730,7 +1787,7 @@ func (a *App) settingsHardwareBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Configured devices")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: usbDevicesSummary(state.State.USBDevices), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: usbDevicesSummary(state.State.USBDevices), Size: 12, Color: a.currentTheme().Body}),
 	}
 	if state.State.USBEmulation != nil {
 		usbChildren = append(usbChildren,
@@ -1743,9 +1800,9 @@ func (a *App) settingsHardwareBody() ui.Element {
 		)
 		switch {
 		case usbState.Pending:
-			usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 		case usbState.Error != "":
-			usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbState.Error, a.currentTheme().Error)))
 		}
 	}
 	usbChildren = append(usbChildren,
@@ -1777,12 +1834,12 @@ func (a *App) settingsHardwareBody() ui.Element {
 	)
 	switch {
 	case usbDevicesState.Pending:
-		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 	case usbDevicesState.Error != "":
-		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbDevicesState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbDevicesState.Error, a.currentTheme().Error)))
 	}
 	if state.Error != "" {
-		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		usbChildren = append(usbChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 	children := []ui.Child{ui.Fixed(settingsTwoPane(settingsCardElement("Display", ui.Column{Children: displayChildren}), 48, settingsCardElement("USB", ui.Column{Children: usbChildren}), 52))}
 	if state.State.USBNetwork != nil || a.usbNetworkEditorLoaded {
@@ -1810,7 +1867,7 @@ func (a *App) settingsHardwareBody() ui.Element {
 			}, Spacing: 12, LineSpacing: 8}),
 		}
 		if !protocolEditable {
-			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Protocol follows the selected host preset. Switch to Custom to edit it directly.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Protocol follows the selected host preset. Switch to Custom to edit it directly.", Size: 12, Color: a.currentTheme().Muted}))
 		}
 		usbNetworkChildren = append(usbNetworkChildren,
 			ui.Fixed(ui.Spacer{H: 14}),
@@ -1844,9 +1901,9 @@ func (a *App) settingsHardwareBody() ui.Element {
 		)
 		switch {
 		case usbNetworkState.Pending:
-			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", a.currentTheme().WarningStroke)))
 		case usbNetworkState.Error != "":
-			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbNetworkState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			usbNetworkChildren = append(usbNetworkChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(usbNetworkState.Error, a.currentTheme().Error)))
 		}
 		children = append(children, ui.Fixed(ui.Spacer{H: 14}), ui.Fixed(settingsCardElement("USB Network", ui.Column{Children: usbNetworkChildren})))
 	}
@@ -1860,7 +1917,7 @@ func (a *App) settingsAccessBody() ui.Element {
 	localAuthState := a.settingsAction(settingsGroupLocalAuth)
 	if state.Loading {
 		return settingsTwoPane(
-			settingsCardElement("Local Access", ui.Label{Text: "Loading access state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+			settingsCardElement("Local Access", ui.Label{Text: "Loading access state…", Size: 13, Color: a.currentTheme().Body}),
 			50,
 			settingsCardElement("Remote Access", ui.Spacer{}),
 			50,
@@ -1890,16 +1947,16 @@ func (a *App) settingsAccessBody() ui.Element {
 	case localAuthState.Pending:
 		localChildren = append(localChildren,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})),
+			ui.Fixed(settingsStatusElement("Saving…", a.currentTheme().WarningStroke)),
 		)
 	case localAuthState.Error != "":
 		localChildren = append(localChildren,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(settingsStatusElement(localAuthState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})),
+			ui.Fixed(settingsStatusElement(localAuthState.Error, a.currentTheme().Error)),
 		)
 	}
 	if a.accessEditor.Message != "" {
-		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		msgColor := a.currentTheme().WarningStroke
 		if a.accessEditor.Success {
 			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 		}
@@ -1920,7 +1977,7 @@ func (a *App) settingsAccessBody() ui.Element {
 	tlsChildren := []ui.Child{
 		ui.Fixed(settingsKeyValueElement("Mode", string(state.State.TLS.Mode), 70)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(ui.Paragraph{Text: "Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "Use the target's currently exposed TLS mode. Native client transport follows whatever the device publishes.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
 			settingsActionElement("tls_disabled", "Disabled", settingsActionVisual{Enabled: state.State.TLS.Mode != session.TLSModeUnknown && (!tlsState.Pending || tlsState.PendingChoice == "disabled"), Active: state.State.TLS.Mode == session.TLSModeDisabled, Pending: tlsState.Pending && tlsState.PendingChoice == "disabled"}, 92),
@@ -1930,7 +1987,7 @@ func (a *App) settingsAccessBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 16}),
 		ui.Fixed(settingsSectionLabelElement("Certificate")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: pemSummary(a.tlsEditor.Certificate), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: pemSummary(a.tlsEditor.Certificate), Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
 			settingsActionElement("tls_custom_load_certificate", "Load from Clipboard", settingsActionVisual{Enabled: !tlsState.Pending}, 146),
@@ -1939,32 +1996,32 @@ func (a *App) settingsAccessBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 16}),
 		ui.Fixed(settingsSectionLabelElement("Private Key")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: pemSummary(a.tlsEditor.PrivateKey), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: pemSummary(a.tlsEditor.PrivateKey), Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
 			settingsActionElement("tls_custom_load_key", "Load from Clipboard", settingsActionVisual{Enabled: !tlsState.Pending}, 146),
 			settingsActionElement("tls_custom_clear_key", "Clear", settingsActionVisual{Enabled: !tlsState.Pending}, 70),
 		}, Spacing: 12, LineSpacing: 8}),
 		ui.Fixed(ui.Spacer{H: 16}),
-		ui.Fixed(ui.Paragraph{Text: "Load the full PEM certificate chain and matching private key from the system clipboard, then apply Custom TLS.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "Load the full PEM certificate chain and matching private key from the system clipboard, then apply Custom TLS.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(settingsActionElement("tls_custom_save", "Apply Custom TLS", settingsActionVisual{Enabled: !tlsState.Pending}, 142)),
 	}
 	switch {
 	case tlsState.Pending:
-		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 	case tlsState.Error != "":
-		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(tlsState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(tlsState.Error, a.currentTheme().Error)))
 	}
 	if a.tlsEditor.Message != "" {
-		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		msgColor := a.currentTheme().WarningStroke
 		if a.tlsEditor.Success {
 			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 		}
 		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(a.tlsEditor.Message, msgColor)))
 	}
 	if state.Error != "" {
-		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		tlsChildren = append(tlsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 
 	cloudChildren := []ui.Child{
@@ -1972,11 +2029,11 @@ func (a *App) settingsAccessBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Cloud API")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.URL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.URL, "Unavailable"), Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Cloud App")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: fallbackLabel(state.State.Cloud.AppURL, "Unavailable"), Size: 12, Color: a.currentTheme().Body}),
 	}
 
 	rightChildren := []ui.Child{
@@ -2069,7 +2126,7 @@ func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
 		return settingsCardElement("Change Password", ui.Column{Children: children})
 	case accessEditorModeDisable:
 		children := []ui.Child{
-			ui.Fixed(ui.Paragraph{Text: "Confirm the current password to disable local password protection.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: "Confirm the current password to disable local password protection.", Size: 12, Color: a.currentTheme().Muted}),
 			ui.Fixed(ui.Spacer{H: 14}),
 			ui.Fixed(settingsSectionLabelElement("Current Password")),
 			ui.Fixed(ui.Spacer{H: 8}),
@@ -2095,7 +2152,7 @@ func (a *App) settingsNetworkBody() ui.Element {
 	refreshState := a.settingsAction(settingsGroupNetworkRefresh)
 	editorChildren := []ui.Child{}
 	if state.Loading && !a.networkEditorLoaded {
-		editorChildren = append(editorChildren, ui.Fixed(ui.Label{Text: "Loading network settings…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Label{Text: "Loading network settings…", Size: 13, Color: a.currentTheme().Body}))
 	} else {
 		editorChildren = append(editorChildren,
 			ui.Fixed(settingsSectionLabelElement("Hostname")), ui.Fixed(ui.Spacer{H: 8}),
@@ -2190,18 +2247,18 @@ func (a *App) settingsNetworkBody() ui.Element {
 	}
 	switch {
 	case saveState.Pending:
-		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", a.currentTheme().WarningStroke)))
 	case saveState.Error != "":
-		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(saveState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(saveState.Error, a.currentTheme().Error)))
 	}
 	switch {
 	case renewState.Pending:
-		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Renewing DHCP lease…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Renewing DHCP lease…", a.currentTheme().WarningStroke)))
 	case renewState.Error != "":
-		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(renewState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(renewState.Error, a.currentTheme().Error)))
 	}
 	if state.Error != "" {
-		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 
 	stateChildren := []ui.Child{
@@ -2226,7 +2283,7 @@ func (a *App) settingsNetworkBody() ui.Element {
 
 	leaseChildren := []ui.Child{}
 	if state.State.DHCPLease == nil {
-		leaseChildren = append(leaseChildren, ui.Fixed(ui.Paragraph{Text: "No DHCP lease is available for the current interface.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		leaseChildren = append(leaseChildren, ui.Fixed(ui.Paragraph{Text: "No DHCP lease is available for the current interface.", Size: 12, Color: a.currentTheme().Muted}))
 	} else {
 		leaseChildren = append(leaseChildren,
 			ui.Fixed(settingsKeyValueElement("Address", fallbackLabel(state.State.DHCPLease.IP, "Unavailable"), 104)),
@@ -2250,13 +2307,13 @@ func (a *App) settingsNetworkBody() ui.Element {
 	}
 	switch {
 	case refreshState.Pending:
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement("Refreshing…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement("Refreshing…", a.currentTheme().WarningStroke)))
 	case refreshState.Error != "":
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(refreshState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(refreshState.Error, a.currentTheme().Error)))
 	case state.PublicIPError != "":
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(state.PublicIPError, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(state.PublicIPError, a.currentTheme().Error)))
 	case len(state.PublicIPs) == 0:
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "No public IP information available.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "No public IP information available.", Size: 12, Color: a.currentTheme().Muted}))
 	default:
 		for _, address := range state.PublicIPs {
 			serviceChildren = append(serviceChildren,
@@ -2269,11 +2326,11 @@ func (a *App) settingsNetworkBody() ui.Element {
 	serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 18}), ui.Fixed(settingsSectionLabelElement("Tailscale")))
 	switch {
 	case state.TailscaleError != "":
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(state.TailscaleError, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsStatusElement(state.TailscaleError, a.currentTheme().Error)))
 	case state.Tailscale == nil:
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Tailscale state is unavailable.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Tailscale state is unavailable.", Size: 12, Color: a.currentTheme().Muted}))
 	case !state.Tailscale.Installed:
-		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Tailscale is not installed on this device.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: "Tailscale is not installed on this device.", Size: 12, Color: a.currentTheme().Muted}))
 	default:
 		serviceChildren = append(serviceChildren,
 			ui.Fixed(ui.Spacer{H: 8}),
@@ -2296,7 +2353,7 @@ func (a *App) settingsNetworkBody() ui.Element {
 			serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(settingsKeyValueElement("Login URL", state.Tailscale.AuthURL, 96)))
 		}
 		if len(state.Tailscale.Health) > 0 {
-			serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: strings.Join(state.Tailscale.Health, " | "), Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+			serviceChildren = append(serviceChildren, ui.Fixed(ui.Spacer{H: 8}), ui.Fixed(ui.Paragraph{Text: strings.Join(state.Tailscale.Health, " | "), Size: 12, Color: a.currentTheme().Muted}))
 		}
 	}
 
@@ -2422,9 +2479,9 @@ func (a *App) settingsMacrosBody() ui.Element {
 		ui.Fixed(settingsActionElement("macro_create", "Add Macro", settingsActionVisual{Enabled: !macroState.Pending}, 0)),
 	}
 	if state.Loading {
-		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Label{Text: "Loading macros…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}))
+		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Label{Text: "Loading macros…", Size: 13, Color: a.currentTheme().Body}))
 	} else if len(state.Macros) == 0 {
-		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: "No keyboard macros are saved on this device yet.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: "No keyboard macros are saved on this device yet.", Size: 12, Color: a.currentTheme().Muted}))
 	} else {
 		for index, macro := range state.Macros {
 			if index > 0 {
@@ -2452,17 +2509,17 @@ func (a *App) settingsMacrosBody() ui.Element {
 	}
 	switch {
 	case macroState.Pending:
-		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving macros…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving macros…", a.currentTheme().WarningStroke)))
 	case macroState.Error != "":
-		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(macroState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(macroState.Error, a.currentTheme().Error)))
 	}
 	if state.Error != "" {
-		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		listChildren = append(listChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 
 	editorChildren := []ui.Child{}
 	if a.macroEditor.Mode == macroEditorModeNone {
-		editorChildren = append(editorChildren, ui.Fixed(ui.Paragraph{Text: "Select Edit on an existing macro or Add Macro to create a new one. Modifiers and keys use comma-separated HID token names.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}))
+		editorChildren = append(editorChildren, ui.Fixed(ui.Paragraph{Text: "Select Edit on an existing macro or Add Macro to create a new one. Modifiers and keys use comma-separated HID token names.", Size: 12, Color: a.currentTheme().Muted}))
 	} else {
 		selected := a.macroEditor.Selected + 1
 		total := len(a.macroEditor.Steps)
@@ -2501,7 +2558,7 @@ func (a *App) settingsMacrosBody() ui.Element {
 		}
 		editorChildren = append(editorChildren,
 			ui.Fixed(ui.Spacer{H: 14}),
-			ui.Fixed(ui.Paragraph{Text: "Use comma-separated HID names for modifiers and keys. Example: modifiers `ControlLeft` and keys `KeyR`.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: "Use comma-separated HID names for modifiers and keys. Example: modifiers `ControlLeft` and keys `KeyR`.", Size: 12, Color: a.currentTheme().Muted}),
 			ui.Fixed(ui.Spacer{H: 16}),
 			ui.Fixed(ui.Wrap{Children: []ui.Element{
 				settingsActionElement("macro_save", "Save Macro", settingsActionVisual{Enabled: !macroState.Pending}, 96),
@@ -2510,7 +2567,7 @@ func (a *App) settingsMacrosBody() ui.Element {
 		)
 	}
 	if a.macroEditor.Message != "" {
-		msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+		msgColor := a.currentTheme().WarningStroke
 		if a.macroEditor.Success {
 			msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 		}
@@ -2534,7 +2591,7 @@ func (a *App) settingsMQTTBody() ui.Element {
 
 	settingsChildren := []ui.Child{}
 	if state.Loading && !a.mqttEditorLoaded {
-		settingsChildren = append(settingsChildren, ui.Fixed(ui.Label{Text: "Loading MQTT settings…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}))
+		settingsChildren = append(settingsChildren, ui.Fixed(ui.Label{Text: "Loading MQTT settings…", Size: 13, Color: a.currentTheme().Body}))
 	} else {
 		settingsChildren = append(settingsChildren,
 			ui.Fixed(settingsToggleRowElement("mqtt_enabled_toggle", "Enable MQTT", settingsActionVisual{Enabled: !saveState.Pending && !testState.Pending, Active: a.mqttEditor.Enabled})),
@@ -2578,16 +2635,16 @@ func (a *App) settingsMQTTBody() ui.Element {
 		)
 		switch {
 		case saveState.Pending:
-			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", a.currentTheme().WarningStroke)))
 		case saveState.Error != "":
-			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(saveState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(saveState.Error, a.currentTheme().Error)))
 		case testState.Pending:
-			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Testing…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Testing…", a.currentTheme().WarningStroke)))
 		case testState.Error != "":
-			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(testState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(testState.Error, a.currentTheme().Error)))
 		}
 		if a.mqttTestMessage != "" {
-			testColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+			testColor := a.currentTheme().WarningStroke
 			if a.mqttTestSuccess {
 				testColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 			}
@@ -2595,7 +2652,7 @@ func (a *App) settingsMQTTBody() ui.Element {
 		}
 	}
 	if state.Error != "" {
-		settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		settingsChildren = append(settingsChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 
 	statusChildren := []ui.Child{
@@ -2610,7 +2667,7 @@ func (a *App) settingsMQTTBody() ui.Element {
 		ui.Fixed(settingsKeyValueElement("Actions", boolWord(state.Settings.EnableActions), 92)),
 	}
 	if state.Status.Error != "" {
-		statusChildren = append(statusChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Status.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		statusChildren = append(statusChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Status.Error, a.currentTheme().Error)))
 	}
 
 	return settingsTwoPane(
@@ -2627,7 +2684,7 @@ func (a *App) settingsAdvancedBody() ui.Element {
 	a.mu.RUnlock()
 	children := []ui.Child{}
 	if state.Loading {
-		children = append(children, ui.Fixed(ui.Label{Text: "Loading advanced state…", Size: 13, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}))
+		children = append(children, ui.Fixed(ui.Label{Text: "Loading advanced state…", Size: 13, Color: a.currentTheme().Body}))
 	} else {
 		children = append(children,
 			ui.Fixed(settingsKeyValueElement("Developer Mode", boolPtrWord(state.State.DevMode), 128)),
@@ -2654,9 +2711,9 @@ func (a *App) settingsAdvancedBody() ui.Element {
 			)
 			switch {
 			case devChannelState.Pending:
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 			case devChannelState.Error != "":
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devChannelState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devChannelState.Error, a.currentTheme().Error)))
 			}
 		}
 		if state.State.LoopbackOnly != nil {
@@ -2671,9 +2728,9 @@ func (a *App) settingsAdvancedBody() ui.Element {
 			)
 			switch {
 			case loopbackState.Pending:
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 			case loopbackState.Error != "":
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(loopbackState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(loopbackState.Error, a.currentTheme().Error)))
 			}
 		}
 		if state.State.DevMode != nil {
@@ -2688,9 +2745,9 @@ func (a *App) settingsAdvancedBody() ui.Element {
 			)
 			switch {
 			case devModeState.Pending:
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
 			case devModeState.Error != "":
-				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devModeState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+				children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(devModeState.Error, a.currentTheme().Error)))
 			}
 		}
 		sshState := a.settingsAction(settingsGroupSSHKey)
@@ -2710,15 +2767,15 @@ func (a *App) settingsAdvancedBody() ui.Element {
 		)
 		switch {
 		case sshState.Pending:
-			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Saving…", a.currentTheme().WarningStroke)))
 		case sshState.Error != "":
-			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(sshState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(sshState.Error, a.currentTheme().Error)))
 		}
 		children = append(children, ui.Fixed(ui.Spacer{H: 18}), ui.Fixed(settingsSectionLabelElement("Reset Device State")))
 		if a.factoryResetConfirm {
 			children = append(children,
 				ui.Fixed(ui.Spacer{H: 8}),
-				ui.Fixed(ui.Paragraph{Text: "Factory reset removes stored configuration and restarts the device. This cannot be undone.", Size: 12, Color: color.RGBA{R: 220, G: 132, B: 132, A: 255}}),
+				ui.Fixed(ui.Paragraph{Text: "Factory reset removes stored configuration and restarts the device. This cannot be undone.", Size: 12, Color: a.currentTheme().Error}),
 				ui.Fixed(ui.Spacer{H: 12}),
 				ui.Fixed(ui.Wrap{Children: []ui.Element{
 					settingsActionElement("factory_reset_confirm", "Confirm Reset", settingsActionVisual{Enabled: !a.settingsActionPending(settingsGroupFactoryReset)}, 128),
@@ -2734,11 +2791,11 @@ func (a *App) settingsAdvancedBody() ui.Element {
 		factoryResetState := a.settingsAction(settingsGroupFactoryReset)
 		switch {
 		case factoryResetState.Pending:
-			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Resetting…", color.RGBA{R: 245, G: 200, B: 96, A: 255})))
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Resetting…", a.currentTheme().WarningStroke)))
 		case factoryResetState.Error != "":
-			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(factoryResetState.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+			children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(factoryResetState.Error, a.currentTheme().Error)))
 		case a.factoryResetMessage != "":
-			msgColor := color.RGBA{R: 245, G: 200, B: 96, A: 255}
+			msgColor := a.currentTheme().WarningStroke
 			if a.factoryResetSuccess {
 				msgColor = color.RGBA{R: 134, G: 239, B: 172, A: 255}
 			}
@@ -2746,12 +2803,17 @@ func (a *App) settingsAdvancedBody() ui.Element {
 		}
 	}
 	if state.Error != "" {
-		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, color.RGBA{R: 220, G: 132, B: 132, A: 255})))
+		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
 	}
 	return settingsCardElement("Current state", ui.Column{Children: children})
 }
 
 func (a *App) settingsAppearanceBody() ui.Element {
+	themeButtons := []ui.Element{
+		settingsActionElement("theme:system", "System", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeSystem}, 92),
+		settingsActionElement("theme:dark", "Dark", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeDark}, 84),
+		settingsActionElement("theme:light", "Light", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeLight}, 84),
+	}
 	positionButtons := []ui.Element{
 		settingsActionElement("chrome_anchor:top_left", "Top Left", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopLeft}, 96),
 		settingsActionElement("chrome_anchor:top_center", "Top Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopCenter}, 108),
@@ -2762,14 +2824,18 @@ func (a *App) settingsAppearanceBody() ui.Element {
 		settingsActionElement("chrome_anchor:bottom_center", "Bottom Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomCenter}, 126),
 		settingsActionElement("chrome_anchor:bottom_right", "Bottom Right", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomRight}, 118),
 	}
-	return settingsCardElement("Chrome", ui.Column{Children: []ui.Child{
-		ui.Fixed(settingsSectionLabelElement("Top bar")),
+	return settingsCardElement("Appearance", ui.Column{Children: []ui.Child{
+		ui.Fixed(settingsSectionLabelElement("Theme")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsToggleRowElement("pin_chrome_toggle", "Pin Top Bar", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})),
+		ui.Fixed(ui.Wrap{Children: themeButtons, Spacing: 12, LineSpacing: 8}),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsToggleRowElement("hide_header_bar_toggle", "Hide Header Bar", settingsActionVisual{Enabled: true, Active: a.prefs.HideHeaderBar})),
+		ui.Fixed(settingsSectionLabelElement("Icon bar")),
+		ui.Fixed(ui.Spacer{H: 8}),
+		ui.Fixed(settingsToggleRowElement("pin_chrome_toggle", "Pin Icon Bar", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsToggleRowElement("hide_status_bar_toggle", "Hide Status Bar", settingsActionVisual{Enabled: true, Active: a.prefs.HideStatusBar})),
+		ui.Fixed(settingsToggleRowElement("hide_header_bar_toggle", "Hide Button Hints", settingsActionVisual{Enabled: true, Active: a.prefs.HideHeaderBar})),
+		ui.Fixed(ui.Spacer{H: 14}),
+		ui.Fixed(settingsToggleRowElement("hide_status_bar_toggle", "Hide Footer Status", settingsActionVisual{Enabled: true, Active: a.prefs.HideStatusBar})),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Position")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -2786,7 +2852,7 @@ func (a *App) settingsAppearanceBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(settingsActionElement("fullscreen", "Toggle Fullscreen", settingsActionVisual{Enabled: true, Active: ebiten.IsFullscreen()}, 160)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(ui.Paragraph{Text: "Position chooses where the chrome sits on screen. Layout changes whether the control buttons run across or down.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(settingsStatusElement("Position chooses where the icon bar sits on screen. Layout changes whether the controls run across or down. Button hints and footer status are desktop-only UI helpers.", a.currentTheme().Muted)),
 	}})
 }
 
@@ -2800,19 +2866,19 @@ func (a *App) settingsPlannedBody(section settingsSection) ui.Element {
 		}
 	}
 	children := []ui.Child{
-		ui.Fixed(ui.Paragraph{Text: current.description, Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(settingsStatusElement(current.description, a.currentTheme().Muted)),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Current upstream surface")),
 	}
 	for _, item := range current.items {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 8}),
-			ui.Fixed(ui.Paragraph{Text: "• " + item, Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: "• " + item, Size: 12, Color: a.currentTheme().Body}),
 		)
 	}
 	children = append(children,
 		ui.Fixed(ui.Spacer{H: 16}),
-		ui.Fixed(ui.Paragraph{Text: "This section exists in the upstream product structure but is not currently exposed by this target or the desktop client.", Size: 12, Color: color.RGBA{R: 166, G: 178, B: 190, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: "This section exists in the upstream product structure but is not currently exposed by this target or the desktop client.", Size: 12, Color: a.currentTheme().Muted}),
 	)
 	return settingsCardElement("Not exposed here", ui.Column{Children: children})
 }

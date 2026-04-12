@@ -96,8 +96,8 @@ func (t Toggle) Draw(ctx *Context, bounds Rect) {
 		trackStroke = ctx.Theme.ActiveStroke
 	}
 	if t.Pending {
-		trackFill = color.RGBA{R: 88, G: 70, B: 24, A: 255}
-		trackStroke = color.RGBA{R: 234, G: 179, B: 8, A: 180}
+		trackFill = ctx.Theme.WarningFill
+		trackStroke = ctx.Theme.WarningStroke
 		knobStroke = trackStroke
 	}
 	if !t.Enabled {
@@ -144,8 +144,8 @@ func (b Button) Draw(ctx *Context, bounds Rect) {
 		stroke = ctx.Theme.ActiveStroke
 	}
 	if b.Pending {
-		fill = color.RGBA{R: 88, G: 70, B: 24, A: 255}
-		stroke = color.RGBA{R: 234, G: 179, B: 8, A: 180}
+		fill = ctx.Theme.WarningFill
+		stroke = ctx.Theme.WarningStroke
 	}
 	if !b.Enabled {
 		fill = ctx.Theme.DisabledFill

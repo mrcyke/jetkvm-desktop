@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"image/color"
 	"slices"
 	"strings"
 	"time"
@@ -85,7 +84,7 @@ func (a *App) syncLauncherInput() {
 }
 
 func (a *App) drawLauncher(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 11, G: 16, B: 24, A: 255})
+	screen.Fill(a.currentTheme().Background)
 
 	if a.launcherMode == launcherModePassword {
 		a.drawPasswordPrompt(screen)
@@ -116,16 +115,16 @@ func (launcherScreenElement) Measure(_ *ui.Context, constraints ui.Constraints) 
 func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	validInput := strings.TrimSpace(e.app.launcherInput) != "" && isValidConnectHost(strings.TrimSpace(e.app.launcherInput))
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "JetKVM", Size: 30, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
+		ui.Fixed(ui.Label{Text: "JetKVM", Size: 30, Color: ctx.Theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
-		ui.Fixed(ui.Label{Text: "Available devices on your local network", Size: 15, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
+		ui.Fixed(ui.Label{Text: "Available devices on your local network", Size: 15, Color: ctx.Theme.Muted}),
 		ui.Fixed(ui.Spacer{H: 28}),
 		ui.Fixed(ui.Constrained{
 			MinH: 240,
 			MaxH: 520,
 			Child: ui.Panel{
-				Fill:   color.RGBA{R: 15, G: 23, B: 34, A: 255},
-				Stroke: color.RGBA{R: 71, G: 85, B: 105, A: 180},
+				Fill:   ctx.Theme.PanelFill,
+				Stroke: ctx.Theme.PanelStroke,
 				Insets: ui.UniformInsets(18),
 				Child:  launcherListElement(e),
 			},
@@ -133,7 +132,7 @@ func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(ui.Column{
 			Children: []ui.Child{
-				ui.Fixed(ui.Label{Text: "Connect by host, DNS name, or IP", Size: 13, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
+				ui.Fixed(ui.Label{Text: "Connect by host, DNS name, or IP", Size: 13, Color: ctx.Theme.Muted}),
 				ui.Fixed(ui.Spacer{H: 8}),
 				ui.Fixed(ui.Row{
 					Children: []ui.Child{
@@ -148,12 +147,12 @@ func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	if e.app.launcherError != "" {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(ui.Paragraph{Text: e.app.launcherError, Size: 12, Color: color.RGBA{R: 252, G: 165, B: 165, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: e.app.launcherError, Size: 12, Color: ctx.Theme.Error}),
 		)
 	} else if strings.TrimSpace(e.app.launcherInput) != "" && !validInput {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(ui.Paragraph{Text: "Enter a valid hostname or IP address.", Size: 12, Color: color.RGBA{R: 252, G: 165, B: 165, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: "Enter a valid hostname or IP address.", Size: 12, Color: ctx.Theme.Error}),
 		)
 	}
 	ui.Inset{
@@ -185,13 +184,13 @@ func (e launcherPasswordScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 			Vertical:   ui.AlignCenter,
 			Child: ui.Column{
 				Children: []ui.Child{
-					ui.Fixed(ui.Label{Text: "JetKVM", Size: 30, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
+					ui.Fixed(ui.Label{Text: "JetKVM", Size: 30, Color: ctx.Theme.Title}),
 					ui.Fixed(ui.Spacer{H: 26}),
 					ui.Fixed(ui.Constrained{
 						MaxW: 620,
 						Child: ui.Panel{
-							Fill:   color.RGBA{R: 15, G: 23, B: 34, A: 255},
-							Stroke: color.RGBA{R: 71, G: 85, B: 105, A: 180},
+							Fill:   ctx.Theme.PanelFill,
+							Stroke: ctx.Theme.PanelStroke,
 							Insets: ui.UniformInsets(24),
 							Child: launcherPasswordElement{
 								app:         e.app,
@@ -217,12 +216,12 @@ func (e launcherListElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	if len(e.app.discovered) == 0 {
 		ui.Column{
 			Children: []ui.Child{
-				ui.Fixed(ui.Label{Text: "Scanning local subnets for JetKVM devices...", Size: 16, Color: color.RGBA{R: 191, G: 219, B: 254, A: 255}}),
+				ui.Fixed(ui.Label{Text: "Scanning local subnets for JetKVM devices...", Size: 16, Color: ctx.Theme.AccentText}),
 				ui.Fixed(ui.Spacer{H: 12}),
 				ui.Fixed(ui.Paragraph{
 					Text:  "Devices will appear here as soon as they answer the JetKVM HTTP status endpoint.",
 					Size:  13,
-					Color: color.RGBA{R: 148, G: 163, B: 184, A: 255},
+					Color: ctx.Theme.Muted,
 				}),
 			},
 		}.Draw(ctx, bounds)
@@ -241,7 +240,7 @@ func (e launcherListElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		lastUpdated = fmt.Sprintf("Updated %s", humanDiscoveryAge(device.UpdatedAt))
 	}
 	if lastUpdated != "" {
-		children = append(children, ui.Flex(ui.Spacer{}, 1), ui.Fixed(ui.Label{Text: lastUpdated, Size: 11, Color: color.RGBA{R: 100, G: 116, B: 139, A: 255}}))
+		children = append(children, ui.Flex(ui.Spacer{}, 1), ui.Fixed(ui.Label{Text: lastUpdated, Size: 11, Color: ctx.Theme.DisabledText}))
 	}
 	ui.Column{Children: children}.Draw(ctx, bounds)
 }
@@ -253,8 +252,8 @@ type launcherDevicePanelElement struct {
 
 func (e launcherDevicePanelElement) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
 	return ui.Panel{
-		Fill:   color.RGBA{R: 20, G: 31, B: 46, A: 255},
-		Stroke: color.RGBA{R: 56, G: 189, B: 248, A: 80},
+		Fill:   ctx.Theme.SectionFill,
+		Stroke: ctx.Theme.ActiveStroke,
 		Insets: ui.SymmetricInsets(16, 12),
 		Child:  launcherDeviceRowElement{device: e.device},
 	}.Measure(ctx, constraints)
@@ -262,8 +261,8 @@ func (e launcherDevicePanelElement) Measure(ctx *ui.Context, constraints ui.Cons
 
 func (e launcherDevicePanelElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	ui.Panel{
-		Fill:   color.RGBA{R: 20, G: 31, B: 46, A: 255},
-		Stroke: color.RGBA{R: 56, G: 189, B: 248, A: 80},
+		Fill:   ctx.Theme.SectionFill,
+		Stroke: ctx.Theme.ActiveStroke,
 		Insets: ui.SymmetricInsets(16, 12),
 		Child:  launcherDeviceRowElement{device: e.device},
 	}.Draw(ctx, bounds)
@@ -304,12 +303,12 @@ func (e launcherDeviceRowElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		Children: []ui.Child{
 			ui.Flex(ui.Column{
 				Children: []ui.Child{
-					ui.Fixed(ui.Label{Text: e.device.Name, Size: 17, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
+					ui.Fixed(ui.Label{Text: e.device.Name, Size: 17, Color: ctx.Theme.Title}),
 					ui.Fixed(ui.Spacer{H: 8}),
-					ui.Fixed(ui.Label{Text: e.device.BaseURL, Size: 13, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
+					ui.Fixed(ui.Label{Text: e.device.BaseURL, Size: 13, Color: ctx.Theme.Muted}),
 				},
 			}, 1),
-			ui.Fixed(ui.Label{Text: state, Size: 13, Color: color.RGBA{R: 191, G: 219, B: 254, A: 255}}),
+			ui.Fixed(ui.Label{Text: state, Size: 13, Color: ctx.Theme.AccentText}),
 		},
 	}.Draw(ctx, bounds)
 }
@@ -329,12 +328,12 @@ func (e launcherInputElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		Focused:          true,
 		Enabled:          true,
 		TextSize:         15,
-		FillColor:        color.RGBA{R: 15, G: 23, B: 34, A: 255},
-		StrokeColor:      color.RGBA{R: 71, G: 85, B: 105, A: 180},
-		FocusColor:       color.RGBA{R: 96, G: 165, B: 250, A: 180},
-		TextColor:        color.RGBA{R: 241, G: 245, B: 249, A: 255},
-		PlaceholderColor: color.RGBA{R: 100, G: 116, B: 139, A: 255},
-		CaretColor:       color.RGBA{R: 191, G: 219, B: 254, A: 255},
+		FillColor:        ctx.Theme.InputFill,
+		StrokeColor:      ctx.Theme.InputStroke,
+		FocusColor:       ctx.Theme.InputFocus,
+		TextColor:        ctx.Theme.Body,
+		PlaceholderColor: ctx.Theme.DisabledText,
+		CaretColor:       ctx.Theme.AccentText,
 	}.Draw(ctx, bounds)
 }
 
@@ -354,16 +353,16 @@ func (e launcherPasswordElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 func (e launcherPasswordElement) children() []ui.Child {
 	passDisplay := strings.Repeat("*", len([]rune(e.app.launcherPassword)))
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Password Required", Size: 24, Color: color.RGBA{R: 241, G: 245, B: 249, A: 255}}),
+		ui.Fixed(ui.Label{Text: "Password Required", Size: 24, Color: e.app.currentTheme().Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
-		ui.Fixed(ui.Paragraph{Text: e.targetLabel, Size: 14, Color: color.RGBA{R: 148, G: 163, B: 184, A: 255}}),
+		ui.Fixed(ui.Paragraph{Text: e.targetLabel, Size: 14, Color: e.app.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 22}),
 		ui.Fixed(launcherPasswordFieldElement{app: e.app, passDisplay: passDisplay}),
 		ui.Fixed(ui.Spacer{H: 18}),
 	}
 	if e.app.launcherError != "" {
 		children = append(children,
-			ui.Fixed(ui.Paragraph{Text: e.app.launcherError, Size: 12, Color: color.RGBA{R: 252, G: 165, B: 165, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: e.app.launcherError, Size: 12, Color: e.app.currentTheme().Error}),
 			ui.Fixed(ui.Spacer{H: 12}),
 		)
 	}
@@ -394,12 +393,12 @@ func (e launcherPasswordFieldElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		Focused:          true,
 		Enabled:          true,
 		TextSize:         15,
-		FillColor:        color.RGBA{R: 11, G: 16, B: 24, A: 255},
-		StrokeColor:      color.RGBA{R: 127, G: 29, B: 29, A: 180},
-		FocusColor:       color.RGBA{R: 127, G: 29, B: 29, A: 180},
-		TextColor:        color.RGBA{R: 241, G: 245, B: 249, A: 255},
-		PlaceholderColor: color.RGBA{R: 100, G: 116, B: 139, A: 255},
-		CaretColor:       color.RGBA{R: 248, G: 113, B: 113, A: 255},
+		FillColor:        ctx.Theme.InputFill,
+		StrokeColor:      ctx.Theme.WarningStroke,
+		FocusColor:       ctx.Theme.WarningStroke,
+		TextColor:        ctx.Theme.Body,
+		PlaceholderColor: ctx.Theme.DisabledText,
+		CaretColor:       ctx.Theme.Error,
 	}.Draw(ctx, bounds)
 }
 

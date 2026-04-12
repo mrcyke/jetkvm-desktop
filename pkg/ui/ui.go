@@ -130,6 +130,7 @@ type HitTarget struct {
 }
 
 type Theme struct {
+	Background    color.Color
 	Backdrop      color.Color
 	ModalFill     color.Color
 	ModalStroke   color.Color
@@ -153,10 +154,22 @@ type Theme struct {
 	InputFocus    color.Color
 	ProgressTrack color.Color
 	ProgressFill  color.Color
+	WarningFill   color.Color
+	WarningStroke color.Color
+	GraphFill     color.Color
+	GraphStroke   color.Color
+	GraphGrid     color.Color
+	GraphLine     color.Color
+	AccentText    color.Color
 }
 
 func DefaultTheme() Theme {
+	return DarkTheme()
+}
+
+func DarkTheme() Theme {
 	return Theme{
+		Background:    color.RGBA{R: 11, G: 16, B: 24, A: 255},
 		Backdrop:      color.RGBA{A: 160},
 		ModalFill:     color.RGBA{R: 10, G: 16, B: 24, A: 244},
 		ModalStroke:   color.RGBA{R: 110, G: 130, B: 152, A: 110},
@@ -180,6 +193,49 @@ func DefaultTheme() Theme {
 		InputFocus:    color.RGBA{R: 96, G: 165, B: 250, A: 180},
 		ProgressTrack: color.RGBA{R: 22, G: 30, B: 44, A: 255},
 		ProgressFill:  color.RGBA{R: 48, G: 123, B: 206, A: 255},
+		WarningFill:   color.RGBA{R: 88, G: 70, B: 24, A: 255},
+		WarningStroke: color.RGBA{R: 234, G: 179, B: 8, A: 180},
+		GraphFill:     color.RGBA{R: 15, G: 23, B: 34, A: 220},
+		GraphStroke:   color.RGBA{R: 62, G: 80, B: 96, A: 180},
+		GraphGrid:     color.RGBA{R: 34, G: 46, B: 58, A: 120},
+		GraphLine:     color.RGBA{R: 108, G: 184, B: 255, A: 255},
+		AccentText:    color.RGBA{R: 166, G: 200, B: 255, A: 255},
+	}
+}
+
+func LightTheme() Theme {
+	return Theme{
+		Background:    color.RGBA{R: 236, G: 242, B: 248, A: 255},
+		Backdrop:      color.RGBA{A: 120},
+		ModalFill:     color.RGBA{R: 246, G: 250, B: 255, A: 248},
+		ModalStroke:   color.RGBA{R: 93, G: 112, B: 138, A: 210},
+		PanelFill:     color.RGBA{R: 233, G: 241, B: 249, A: 248},
+		PanelStroke:   color.RGBA{R: 100, G: 120, B: 147, A: 205},
+		SectionFill:   color.RGBA{R: 224, G: 234, B: 245, A: 250},
+		SectionStroke: color.RGBA{R: 108, G: 128, B: 156, A: 205},
+		Title:         color.RGBA{R: 23, G: 31, B: 44, A: 255},
+		Body:          color.RGBA{R: 31, G: 41, B: 55, A: 255},
+		Muted:         color.RGBA{R: 77, G: 93, B: 113, A: 255},
+		Error:         color.RGBA{R: 176, G: 38, B: 54, A: 255},
+		ButtonFill:    color.RGBA{R: 225, G: 235, B: 246, A: 255},
+		ButtonStroke:  color.RGBA{R: 98, G: 118, B: 145, A: 205},
+		ButtonText:    color.RGBA{R: 31, G: 41, B: 55, A: 255},
+		ActiveFill:    color.RGBA{R: 48, G: 96, B: 168, A: 255},
+		ActiveStroke:  color.RGBA{R: 27, G: 78, B: 168, A: 220},
+		DisabledFill:  color.RGBA{R: 215, G: 224, B: 234, A: 230},
+		DisabledText:  color.RGBA{R: 136, G: 146, B: 160, A: 255},
+		InputFill:     color.RGBA{R: 249, G: 252, B: 255, A: 255},
+		InputStroke:   color.RGBA{R: 98, G: 118, B: 145, A: 205},
+		InputFocus:    color.RGBA{R: 59, G: 130, B: 246, A: 210},
+		ProgressTrack: color.RGBA{R: 204, G: 216, B: 230, A: 255},
+		ProgressFill:  color.RGBA{R: 59, G: 130, B: 246, A: 255},
+		WarningFill:   color.RGBA{R: 255, G: 243, B: 214, A: 255},
+		WarningStroke: color.RGBA{R: 217, G: 119, B: 6, A: 210},
+		GraphFill:     color.RGBA{R: 227, G: 236, B: 246, A: 240},
+		GraphStroke:   color.RGBA{R: 103, G: 123, B: 151, A: 200},
+		GraphGrid:     color.RGBA{R: 174, G: 191, B: 211, A: 180},
+		GraphLine:     color.RGBA{R: 37, G: 99, B: 235, A: 255},
+		AccentText:    color.RGBA{R: 29, G: 78, B: 216, A: 255},
 	}
 }
 

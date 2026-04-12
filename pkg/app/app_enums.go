@@ -107,11 +107,11 @@ func (i *launcherMode) UnmarshalText(text []byte) error {
 	return err
 }
 
-const _settingsActionGroupName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keynetwork_savemacros_savejigglerlocal_authmqtt_savemqtt_testupdate_installfactory_resetnetwork_refresh"
+const _settingsActionGroupName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keynetwork_savemacros_savejigglerlocal_authmqtt_savemqtt_testupdate_installfactory_resetnetwork_refreshnetwork_renew_dhcpusb_network_save"
 
-var _settingsActionGroupIndex = [...]uint16{0, 15, 28, 39, 49, 57, 73, 82, 93, 106, 117, 128, 141, 155, 166, 179, 186, 198, 209, 216, 226, 235, 244, 258, 271, 286}
+var _settingsActionGroupIndex = [...]uint16{0, 15, 28, 39, 49, 57, 73, 82, 93, 106, 117, 128, 141, 155, 166, 179, 186, 198, 209, 216, 226, 235, 244, 258, 271, 286, 304, 320}
 
-const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keynetwork_savemacros_savejigglerlocal_authmqtt_savemqtt_testupdate_installfactory_resetnetwork_refresh"
+const _settingsActionGroupLowerName = "keyboard_layoutvideo_qualityvideo_codecvideo_edidtls_modedisplay_rotationbacklightvideo_sleepusb_emulationusb_devicesauto_updateupdate_statusdeveloper_modedev_channelloopback_onlyssh_keynetwork_savemacros_savejigglerlocal_authmqtt_savemqtt_testupdate_installfactory_resetnetwork_refreshnetwork_renew_dhcpusb_network_save"
 
 func (i settingsActionGroup) String() string {
 	if i >= settingsActionGroup(len(_settingsActionGroupIndex)-1) {
@@ -149,9 +149,11 @@ func _settingsActionGroupNoOp() {
 	_ = x[settingsGroupUpdateInstall-(22)]
 	_ = x[settingsGroupFactoryReset-(23)]
 	_ = x[settingsGroupNetworkRefresh-(24)]
+	_ = x[settingsGroupNetworkRenew-(25)]
+	_ = x[settingsGroupUSBNetworkSave-(26)]
 }
 
-var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupVideoCodec, settingsGroupVideoEDID, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupBacklight, settingsGroupVideoSleep, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupUpdateStatus, settingsGroupDeveloperMode, settingsGroupDevChannel, settingsGroupLoopbackOnly, settingsGroupSSHKey, settingsGroupNetworkSave, settingsGroupMacrosSave, settingsGroupJiggler, settingsGroupLocalAuth, settingsGroupMQTTSave, settingsGroupMQTTTest, settingsGroupUpdateInstall, settingsGroupFactoryReset, settingsGroupNetworkRefresh}
+var _settingsActionGroupValues = []settingsActionGroup{settingsGroupKeyboardLayout, settingsGroupVideoQuality, settingsGroupVideoCodec, settingsGroupVideoEDID, settingsGroupTLSMode, settingsGroupDisplayRotate, settingsGroupBacklight, settingsGroupVideoSleep, settingsGroupUSBEmulation, settingsGroupUSBDevices, settingsGroupAutoUpdate, settingsGroupUpdateStatus, settingsGroupDeveloperMode, settingsGroupDevChannel, settingsGroupLoopbackOnly, settingsGroupSSHKey, settingsGroupNetworkSave, settingsGroupMacrosSave, settingsGroupJiggler, settingsGroupLocalAuth, settingsGroupMQTTSave, settingsGroupMQTTTest, settingsGroupUpdateInstall, settingsGroupFactoryReset, settingsGroupNetworkRefresh, settingsGroupNetworkRenew, settingsGroupUSBNetworkSave}
 
 var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupName[0:15]:         settingsGroupKeyboardLayout,
@@ -204,6 +206,10 @@ var _settingsActionGroupNameToValueMap = map[string]settingsActionGroup{
 	_settingsActionGroupLowerName[258:271]: settingsGroupFactoryReset,
 	_settingsActionGroupName[271:286]:      settingsGroupNetworkRefresh,
 	_settingsActionGroupLowerName[271:286]: settingsGroupNetworkRefresh,
+	_settingsActionGroupName[286:304]:      settingsGroupNetworkRenew,
+	_settingsActionGroupLowerName[286:304]: settingsGroupNetworkRenew,
+	_settingsActionGroupName[304:320]:      settingsGroupUSBNetworkSave,
+	_settingsActionGroupLowerName[304:320]: settingsGroupUSBNetworkSave,
 }
 
 var _settingsActionGroupNames = []string{
@@ -232,6 +238,8 @@ var _settingsActionGroupNames = []string{
 	_settingsActionGroupName[244:258],
 	_settingsActionGroupName[258:271],
 	_settingsActionGroupName[271:286],
+	_settingsActionGroupName[286:304],
+	_settingsActionGroupName[304:320],
 }
 
 // settingsActionGroupString retrieves an enum value from the enum constants string name.

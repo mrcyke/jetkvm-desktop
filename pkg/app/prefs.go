@@ -27,7 +27,9 @@ type Theme uint8
 
 const (
 	themeUnknown Theme = iota // unknown
+	themeSystem               // system
 	themeDark                 // dark
+	themeLight                // light
 )
 
 type ChromeAnchor uint8
@@ -65,7 +67,7 @@ const (
 
 func defaultPreferences() Preferences {
 	return Preferences{
-		Theme:           themeDark,
+		Theme:           themeSystem,
 		PinChrome:       false,
 		HideHeaderBar:   false,
 		HideStatusBar:   false,
@@ -124,7 +126,7 @@ func preferencesPath() (string, error) {
 
 func (p *Preferences) normalize() {
 	if p.Theme == themeUnknown {
-		p.Theme = themeDark
+		p.Theme = themeSystem
 	}
 	switch p.ScrollThrottle {
 	case scrollThrottleOff, scrollThrottle10ms, scrollThrottle25ms, scrollThrottle50ms, scrollThrottle100ms:

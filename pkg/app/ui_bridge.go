@@ -9,7 +9,7 @@ import (
 func (a *App) newUIContext(screen *ebiten.Image, register func(chromeButton)) *ui.Context {
 	return &ui.Context{
 		Screen:          screen,
-		Theme:           ui.DefaultTheme(),
+		Theme:           a.currentTheme(),
 		MeasureText:     ui.MeasureText,
 		MeasureWrapped:  ui.WrappedTextHeight,
 		DrawText:        ui.DrawText,

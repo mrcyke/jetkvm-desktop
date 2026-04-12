@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-const _ThemeName = "unknowndark"
+const _ThemeName = "unknownsystemdarklight"
 
-var _ThemeIndex = [...]uint8{0, 7, 11}
+var _ThemeIndex = [...]uint8{0, 7, 13, 17, 22}
 
-const _ThemeLowerName = "unknowndark"
+const _ThemeLowerName = "unknownsystemdarklight"
 
 func (i Theme) String() string {
 	if i >= Theme(len(_ThemeIndex)-1) {
@@ -26,21 +26,29 @@ func (i Theme) String() string {
 func _ThemeNoOp() {
 	var x [1]struct{}
 	_ = x[themeUnknown-(0)]
-	_ = x[themeDark-(1)]
+	_ = x[themeSystem-(1)]
+	_ = x[themeDark-(2)]
+	_ = x[themeLight-(3)]
 }
 
-var _ThemeValues = []Theme{themeUnknown, themeDark}
+var _ThemeValues = []Theme{themeUnknown, themeSystem, themeDark, themeLight}
 
 var _ThemeNameToValueMap = map[string]Theme{
-	_ThemeName[0:7]:       themeUnknown,
-	_ThemeLowerName[0:7]:  themeUnknown,
-	_ThemeName[7:11]:      themeDark,
-	_ThemeLowerName[7:11]: themeDark,
+	_ThemeName[0:7]:        themeUnknown,
+	_ThemeLowerName[0:7]:   themeUnknown,
+	_ThemeName[7:13]:       themeSystem,
+	_ThemeLowerName[7:13]:  themeSystem,
+	_ThemeName[13:17]:      themeDark,
+	_ThemeLowerName[13:17]: themeDark,
+	_ThemeName[17:22]:      themeLight,
+	_ThemeLowerName[17:22]: themeLight,
 }
 
 var _ThemeNames = []string{
 	_ThemeName[0:7],
-	_ThemeName[7:11],
+	_ThemeName[7:13],
+	_ThemeName[13:17],
+	_ThemeName[17:22],
 }
 
 // ThemeString retrieves an enum value from the enum constants string name.

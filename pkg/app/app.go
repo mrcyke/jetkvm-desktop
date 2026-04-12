@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/color"
 	"math"
 	"net"
 	"net/url"
@@ -69,6 +68,8 @@ type App struct {
 	mediaPanel             rect
 	launcherButtons        []chromeButton
 	prefs                  Preferences
+	systemTheme            Theme
+	systemThemeCheckedAt   time.Time
 	hideCursor             bool
 	invertScroll           bool
 	showPressedKeys        bool
@@ -469,11 +470,11 @@ func (a *App) Draw(screen *ebiten.Image) {
 		return
 	}
 	if a.ctrl == nil {
-		screen.Fill(color.RGBA{R: 9, G: 14, B: 22, A: 255})
+		screen.Fill(a.currentTheme().Background)
 		return
 	}
 	snap := a.ctrl.Snapshot()
-	screen.Fill(color.RGBA{R: 9, G: 14, B: 22, A: 255})
+	screen.Fill(a.currentTheme().Background)
 	videoArea := screen.Bounds()
 	a.mu.RLock()
 	img := a.lastImg
@@ -1946,6 +1947,16 @@ func (a *App) invokeAction(id string) {
 		a.savePreferences()
 	case "hide_status_bar_toggle":
 		a.prefs.HideStatusBar = !a.prefs.HideStatusBar
+		a.savePreferences()
+	case "theme:system":
+		a.prefs.Theme = themeSystem
+		a.refreshSystemTheme()
+		a.savePreferences()
+	case "theme:dark":
+		a.prefs.Theme = themeDark
+		a.savePreferences()
+	case "theme:light":
+		a.prefs.Theme = themeLight
 		a.savePreferences()
 	case "chrome_anchor:top_left":
 		a.prefs.ChromeAnchor = chromeAnchorTopLeft
@@ -3454,12 +3465,12 @@ func (e overlayBannerElement) Measure(_ *ui.Context, constraints ui.Constraints)
 
 func (e overlayBannerElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: e.title, Size: 22, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+		ui.Fixed(ui.Label{Text: e.title, Size: 22, Color: ctx.Theme.Title}),
 	}
 	if e.detail != "" {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 10}),
-			ui.Fixed(ui.Label{Text: e.detail, Size: 14, Color: color.RGBA{R: 178, G: 188, B: 198, A: 255}}),
+			ui.Fixed(ui.Label{Text: e.detail, Size: 14, Color: ctx.Theme.Muted}),
 		)
 	}
 	if e.withButton {
@@ -3490,7 +3501,8 @@ func (e overlayBannerRootElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		W: e.width,
 		H: 96,
 		Child: ui.Panel{
-			Fill:   color.RGBA{R: 8, G: 12, B: 18, A: 228},
+			Fill:   ctx.Theme.ModalFill,
+			Stroke: ctx.Theme.ModalStroke,
 			Insets: ui.Insets{Top: 20, Right: 16, Bottom: 12, Left: 16},
 			Child: overlayBannerElement{
 				title:      e.title,
@@ -3520,10 +3532,10 @@ func (e pressedKeysOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		W: e.w,
 		H: 28,
 		Child: ui.Panel{
-			Fill:   color.RGBA{R: 8, G: 12, B: 18, A: 212},
-			Stroke: color.RGBA{R: 112, G: 128, B: 148, A: 120},
+			Fill:   ctx.Theme.ModalFill,
+			Stroke: ctx.Theme.ModalStroke,
 			Insets: ui.SymmetricInsets(10, 8),
-			Child:  ui.Label{Text: e.text, Size: 12, Color: color.RGBA{R: 236, G: 241, B: 245, A: 255}},
+			Child:  ui.Label{Text: e.text, Size: 12, Color: ctx.Theme.Body},
 		},
 	}.Draw(ctx, bounds)
 }

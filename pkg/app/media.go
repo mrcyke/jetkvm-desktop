@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -478,7 +477,7 @@ func (h mediaHeaderElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	}
 	rightChildren := []ui.Child{}
 	if h.app.mediaLoading {
-		rightChildren = append(rightChildren, ui.Fixed(ui.Label{Text: "Working…", Size: 12, Color: color.RGBA{R: 147, G: 197, B: 253, A: 255}}), ui.Fixed(ui.Spacer{H: 10}))
+		rightChildren = append(rightChildren, ui.Fixed(ui.Label{Text: "Working…", Size: 12, Color: ctx.Theme.AccentText}), ui.Fixed(ui.Spacer{H: 10}))
 	}
 	rightChildren = append(rightChildren, ui.Fixed(ui.Button{ID: "media_close", Label: "X", Enabled: !h.app.mediaUploading}))
 	ui.Row{
@@ -586,13 +585,14 @@ func (e mediaHomeBodyElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 }
 
 func (e mediaHomeBodyElement) content() []ui.Child {
+	theme := e.app.currentTheme()
 	return []ui.Child{
-		ui.Fixed(ui.Label{Text: "Choose a source", Size: 18, Color: ui.DefaultTheme().Title}),
+		ui.Fixed(ui.Label{Text: "Choose a source", Size: 18, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "Use URL mounting for public ISOs, JetKVM storage for already-uploaded images, or Upload to send a local file to the device.",
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 16}),
 		ui.Fixed(ui.KeyValue{Label: "Device", Value: fallbackLabel(e.snap.Hostname, e.snap.DeviceID, "Unknown"), LabelWidth: 72}),
@@ -601,12 +601,12 @@ func (e mediaHomeBodyElement) content() []ui.Child {
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.KeyValue{Label: "Storage Free", Value: humanBytes(e.app.mediaSpace.BytesFree), LabelWidth: 96}),
 		ui.Flex(ui.Spacer{}, 1),
-		ui.Fixed(ui.Label{Text: "Tips", Size: 16, Color: ui.DefaultTheme().Title}),
+		ui.Fixed(ui.Label{Text: "Tips", Size: 16, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "ISO files normally want CDROM mode. IMG files usually want Disk mode. Only one piece of virtual media can be mounted at a time.",
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 	}
 }
@@ -624,13 +624,14 @@ func (e mediaURLBodyElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 }
 
 func (e mediaURLBodyElement) content() []ui.Child {
+	theme := e.app.currentTheme()
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Mount from URL", Size: 18, Color: ui.DefaultTheme().Title}),
+		ui.Fixed(ui.Label{Text: "Mount from URL", Size: 18, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "Paste a direct ISO or IMG URL. The file stays remote; JetKVM streams it on demand.",
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(ui.TextField{
@@ -641,7 +642,7 @@ func (e mediaURLBodyElement) content() []ui.Child {
 			Enabled:     true,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
-		ui.Fixed(ui.Label{Text: "USB Mode", Size: 13, Color: ui.DefaultTheme().Muted}),
+		ui.Fixed(ui.Label{Text: "USB Mode", Size: 13, Color: theme.Muted}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(mediaModeButtons{app: e.app, disabled: false}),
 		ui.Fixed(ui.Spacer{H: 18}),
@@ -650,12 +651,12 @@ func (e mediaURLBodyElement) content() []ui.Child {
 	if strings.TrimSpace(e.app.mediaURL) != "" && !isValidMediaURL(e.app.mediaURL) {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(ui.Label{Text: "Enter a valid absolute URL.", Size: 12, Color: ui.DefaultTheme().Error}),
+			ui.Fixed(ui.Label{Text: "Enter a valid absolute URL.", Size: 12, Color: theme.Error}),
 		)
 	}
 	children = append(children, ui.Flex(ui.Spacer{}, 1))
 	if e.app.mediaError != "" {
-		children = append(children, ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: ui.DefaultTheme().Error}))
+		children = append(children, ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: theme.Error}))
 	}
 	return children
 }
@@ -673,18 +674,19 @@ func (e mediaStorageBodyElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 }
 
 func (e mediaStorageBodyElement) content() []ui.Child {
+	theme := e.app.currentTheme()
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "JetKVM Storage", Size: 18, Color: ui.DefaultTheme().Title}),
+		ui.Fixed(ui.Label{Text: "JetKVM Storage", Size: 18, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "Select an image already stored on the device. Incomplete uploads are shown but cannot be mounted.",
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 16}),
 	}
 	if len(e.app.mediaFiles) == 0 {
-		children = append(children, ui.Fixed(ui.Label{Text: "No stored images yet.", Size: 14, Color: ui.DefaultTheme().Muted}))
+		children = append(children, ui.Fixed(ui.Label{Text: "No stored images yet.", Size: 14, Color: theme.Muted}))
 	} else {
 		for i, file := range e.app.mediaFiles {
 			if i >= 7 {
@@ -701,7 +703,7 @@ func (e mediaStorageBodyElement) content() []ui.Child {
 	}
 	children = append(children,
 		ui.Flex(ui.Spacer{}, 1),
-		ui.Fixed(ui.Label{Text: "USB Mode", Size: 13, Color: ui.DefaultTheme().Muted}),
+		ui.Fixed(ui.Label{Text: "USB Mode", Size: 13, Color: theme.Muted}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Row{
 			Children: []ui.Child{
@@ -715,11 +717,11 @@ func (e mediaStorageBodyElement) content() []ui.Child {
 		ui.Fixed(ui.Label{
 			Text:  fmt.Sprintf("Used %s  Free %s", humanBytes(e.app.mediaSpace.BytesUsed), humanBytes(e.app.mediaSpace.BytesFree)),
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 	)
 	if e.app.mediaError != "" {
-		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: ui.DefaultTheme().Error}))
+		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: theme.Error}))
 	}
 	return children
 }
@@ -737,13 +739,14 @@ func (e mediaUploadBodyElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 }
 
 func (e mediaUploadBodyElement) content() []ui.Child {
+	theme := e.app.currentTheme()
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Upload Image", Size: 18, Color: ui.DefaultTheme().Title}),
+		ui.Fixed(ui.Label{Text: "Upload Image", Size: 18, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "Pick a local ISO or IMG file and upload it into JetKVM storage. The same device storage browser can mount it afterward.",
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(ui.Row{
@@ -760,7 +763,7 @@ func (e mediaUploadBodyElement) content() []ui.Child {
 			Spacing: 10,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
-		ui.Fixed(ui.Label{Text: "Mount Mode", Size: 13, Color: ui.DefaultTheme().Muted}),
+		ui.Fixed(ui.Label{Text: "Mount Mode", Size: 13, Color: theme.Muted}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(mediaModeButtons{app: e.app, disabled: e.app.mediaUploading}),
 		ui.Fixed(ui.Spacer{H: 18}),
@@ -783,11 +786,11 @@ func (e mediaUploadBodyElement) content() []ui.Child {
 		children = append(children, ui.Fixed(ui.Label{
 			Text:  trimTextToWidth("Selected: "+filepath.Base(e.app.mediaUploadPath), 640, 12),
 			Size:  12,
-			Color: ui.DefaultTheme().Muted,
+			Color: theme.Muted,
 		}))
 	}
 	if e.app.mediaError != "" {
-		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: ui.DefaultTheme().Error}))
+		children = append(children, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(ui.Paragraph{Text: e.app.mediaError, Size: 12, Color: theme.Error}))
 	}
 	return children
 }
@@ -825,9 +828,9 @@ func (mediaFileRowElement) Measure(_ *ui.Context, constraints ui.Constraints) ui
 }
 
 func (e mediaFileRowElement) Draw(ctx *ui.Context, bounds ui.Rect) {
-	fill := color.RGBA{R: 18, G: 26, B: 38, A: 255}
+	fill := ctx.Theme.SectionFill
 	if e.app.mediaSelectedFile == e.file.Filename {
-		fill = color.RGBA{R: 32, G: 74, B: 122, A: 255}
+		fill = ctx.Theme.ActiveFill
 	}
 	ui.Panel{
 		Fill:   fill,

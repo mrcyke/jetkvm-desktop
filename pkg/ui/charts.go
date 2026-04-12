@@ -1,7 +1,5 @@
 package ui
 
-import "image/color"
-
 type MetricGraph struct {
 	Title  string
 	Value  string
@@ -13,21 +11,21 @@ func (m MetricGraph) Measure(_ *Context, constraints Constraints) Size {
 }
 
 func (m MetricGraph) Draw(ctx *Context, bounds Rect) {
-	ctx.FillRect(bounds, color.RGBA{R: 15, G: 23, B: 34, A: 220})
-	ctx.StrokeRect(bounds, 1, color.RGBA{R: 62, G: 80, B: 96, A: 180})
-	DrawText(ctx.Screen, m.Title, bounds.X+10, bounds.Y+10, 12, color.RGBA{R: 240, G: 244, B: 248, A: 255})
-	DrawText(ctx.Screen, m.Value, bounds.Right()-88, bounds.Y+10, 12, color.RGBA{R: 166, G: 200, B: 255, A: 255})
+	ctx.FillRect(bounds, ctx.Theme.GraphFill)
+	ctx.StrokeRect(bounds, 1, ctx.Theme.GraphStroke)
+	ctx.DrawText(ctx.Screen, m.Title, bounds.X+10, bounds.Y+10, 12, ctx.Theme.Title)
+	ctx.DrawText(ctx.Screen, m.Value, bounds.Right()-88, bounds.Y+10, 12, ctx.Theme.AccentText)
 
 	chartX := bounds.X + 10
 	chartY := bounds.Y + 24
 	chartW := bounds.W - 20
 	chartH := bounds.H - 32
-	ctx.StrokeRect(Rect{X: chartX, Y: chartY, W: chartW, H: chartH}, 1, color.RGBA{R: 46, G: 60, B: 75, A: 120})
+	ctx.StrokeRect(Rect{X: chartX, Y: chartY, W: chartW, H: chartH}, 1, ctx.Theme.GraphStroke)
 
 	minY, maxY := graphDomain(m.Series)
 	for i := 1; i < 4; i++ {
 		yy := chartY + chartH*(float64(i)/4)
-		ctx.StrokeLine(Point{X: chartX, Y: yy}, Point{X: chartX + chartW, Y: yy}, 1, color.RGBA{R: 34, G: 46, B: 58, A: 120})
+		ctx.StrokeLine(Point{X: chartX, Y: yy}, Point{X: chartX + chartW, Y: yy}, 1, ctx.Theme.GraphGrid)
 	}
 	if len(m.Series) < 2 {
 		return
@@ -43,7 +41,7 @@ func (m MetricGraph) Draw(ctx *Context, bounds Rect) {
 		px := chartX + (float64(i)/float64(len(m.Series)-1))*chartW
 		py := chartY + chartH - norm*chartH
 		if i > 0 {
-			ctx.StrokeLine(Point{X: prevX, Y: prevY}, Point{X: px, Y: py}, 2, color.RGBA{R: 108, G: 184, B: 255, A: 255})
+			ctx.StrokeLine(Point{X: prevX, Y: prevY}, Point{X: px, Y: py}, 2, ctx.Theme.GraphLine)
 		}
 		prevX = px
 		prevY = py

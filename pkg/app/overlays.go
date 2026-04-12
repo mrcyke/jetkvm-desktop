@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"time"
 
@@ -270,15 +269,16 @@ func (e statsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 }
 
 func (e statsOverlayElement) children() []ui.Child {
+	theme := e.app.currentTheme()
 	children := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Connection Stats", Size: 14, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+		ui.Fixed(ui.Label{Text: "Connection Stats", Size: 14, Color: theme.Title}),
 		ui.Fixed(ui.Spacer{H: 8}),
 	}
 	for i, line := range e.lines {
 		if i > 0 {
 			children = append(children, ui.Fixed(ui.Spacer{H: 6}))
 		}
-		children = append(children, ui.Fixed(ui.Label{Text: line, Size: 12, Color: color.RGBA{R: 210, G: 218, B: 226, A: 255}}))
+		children = append(children, ui.Fixed(ui.Label{Text: line, Size: 12, Color: theme.Body}))
 	}
 	children = append(children, ui.Fixed(ui.Spacer{H: 18}))
 	for i, graph := range e.graphs {
@@ -325,19 +325,19 @@ func (e pasteOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		},
 	}
 	bodyChildren := []ui.Child{
-		ui.Fixed(ui.Label{Text: "Paste Text", Size: 22, Color: color.RGBA{R: 240, G: 244, B: 248, A: 255}}),
+		ui.Fixed(ui.Label{Text: "Paste Text", Size: 22, Color: ctx.Theme.Title}),
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Paragraph{
 			Text:  "Send clipboard text to the remote host using keyboard macro steps over HID-RPC. Unsupported characters are skipped.",
 			Size:  13,
-			Color: color.RGBA{R: 166, G: 178, B: 190, A: 255},
+			Color: ctx.Theme.Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(metaRow),
 		ui.Fixed(ui.Spacer{H: 16}),
 		ui.Flex(ui.Panel{
-			Fill:   color.RGBA{R: 18, G: 28, B: 40, A: 255},
-			Stroke: color.RGBA{R: 54, G: 68, B: 84, A: 180},
+			Fill:   ctx.Theme.PanelFill,
+			Stroke: ctx.Theme.PanelStroke,
 			Insets: ui.UniformInsets(14),
 			Child:  pasteTextElement{app: e.app},
 		}, 1),
@@ -348,20 +348,20 @@ func (e pasteOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 			ui.Fixed(ui.Paragraph{
 				Text:  "Skipped characters: " + e.app.pasteInvalid,
 				Size:  12,
-				Color: color.RGBA{R: 236, G: 180, B: 126, A: 255},
+				Color: ctx.Theme.WarningStroke,
 			}),
 			ui.Fixed(ui.Spacer{H: 6}),
 		)
 	}
 	if e.app.pasteError != "" {
 		bodyChildren = append(bodyChildren,
-			ui.Fixed(ui.Paragraph{Text: e.app.pasteError, Size: 12, Color: color.RGBA{R: 228, G: 142, B: 142, A: 255}}),
+			ui.Fixed(ui.Paragraph{Text: e.app.pasteError, Size: 12, Color: ctx.Theme.Error}),
 			ui.Fixed(ui.Spacer{H: 6}),
 		)
 	}
 	if e.snap.PasteInProgress {
 		bodyChildren = append(bodyChildren,
-			ui.Fixed(ui.Label{Text: "Paste in progress…", Size: 12, Color: color.RGBA{R: 166, G: 200, B: 255, A: 255}}),
+			ui.Fixed(ui.Label{Text: "Paste in progress…", Size: 12, Color: ctx.Theme.AccentText}),
 			ui.Fixed(ui.Spacer{H: 6}),
 		)
 	}
@@ -395,8 +395,8 @@ func (e statsOverlayRootElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 			Horizontal: ui.AlignEnd,
 			Vertical:   ui.AlignStart,
 			Child: ui.Panel{
-				Fill:   color.RGBA{R: 9, G: 14, B: 22, A: 224},
-				Stroke: color.RGBA{R: 88, G: 108, B: 126, A: 180},
+				Fill:   ctx.Theme.ModalFill,
+				Stroke: ctx.Theme.ModalStroke,
 				Insets: ui.UniformInsets(16),
 				Child:  e.child,
 			},
@@ -415,7 +415,7 @@ func (pasteOverlayRootElement) Measure(_ *ui.Context, constraints ui.Constraints
 
 func (e pasteOverlayRootElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	ui.Stack{Children: []ui.Element{
-		ui.Backdrop{Color: color.RGBA{A: 168}},
+		ui.Backdrop{Color: ctx.Theme.Backdrop},
 		ui.Inset{
 			Insets: ui.Insets{Top: 48, Right: 36, Bottom: 48, Left: 36},
 			Child: ui.Align{
@@ -443,8 +443,8 @@ func (pastePanelElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.S
 func (e pastePanelElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	e.app.pastePanel = rect{x: bounds.X, y: bounds.Y, w: bounds.W, h: bounds.H}
 	ui.Panel{
-		Fill:   color.RGBA{R: 13, G: 20, B: 30, A: 246},
-		Stroke: color.RGBA{R: 88, G: 102, B: 118, A: 180},
+		Fill:   ctx.Theme.ModalFill,
+		Stroke: ctx.Theme.ModalStroke,
 		Insets: ui.UniformInsets(22),
 		Child:  e.child,
 	}.Draw(ctx, bounds)
@@ -463,13 +463,13 @@ func (e pasteTextElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		ui.Label{
 			Text:  "Paste from host clipboard or type here",
 			Size:  14,
-			Color: color.RGBA{R: 108, G: 122, B: 136, A: 255},
+			Color: ctx.Theme.DisabledText,
 		}.Draw(ctx, bounds)
 		return
 	}
 	ui.Paragraph{
 		Text:  e.app.pasteText,
 		Size:  14,
-		Color: color.RGBA{R: 236, G: 241, B: 245, A: 255},
+		Color: ctx.Theme.Body,
 	}.Draw(ctx, bounds)
 }
