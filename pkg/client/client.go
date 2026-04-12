@@ -431,7 +431,7 @@ func (c *Client) SendRelMouse(dx, dy int8, buttons byte) error {
 		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to marshal relative mouse")
 		return err
 	}
-	if buttons != 0 {
+	if buttons != 0 || (dx == 0 && dy == 0) {
 		log.Trace().Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("sending relative mouse")
 	}
 	if err := c.hidDC.Send(data); err != nil {

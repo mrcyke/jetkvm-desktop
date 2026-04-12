@@ -219,6 +219,26 @@ func TestShouldRouteSideButtonsToRelative(t *testing.T) {
 	}
 }
 
+func TestShouldRouteSideButtonsToRelativeForRelease(t *testing.T) {
+	app := &App{}
+	app.prefs.AbsoluteSideButtonsViaRel = true
+	app.hardwareConn.USBDevicesLoaded = true
+	app.hardwareConn.USBDevices = session.USBDevices{
+		AbsoluteMouse: true,
+		RelativeMouse: true,
+	}
+
+	if !app.shouldRouteSideButtonsToRelativeFor(0, mouseButtonBackMask) {
+		t.Fatal("expected side-button release to stay on relative routing")
+	}
+	if !app.shouldRouteSideButtonsToRelativeFor(0, mouseButtonForwardMask) {
+		t.Fatal("expected forward-button release to stay on relative routing")
+	}
+	if app.shouldRouteSideButtonsToRelativeFor(0, 0) {
+		t.Fatal("expected no routing when neither current nor last state contains side buttons")
+	}
+}
+
 func TestValidateJigglerConfig(t *testing.T) {
 	if err := validateJigglerConfig(standardJigglerConfig()); err != nil {
 		t.Fatalf("standard config rejected: %v", err)

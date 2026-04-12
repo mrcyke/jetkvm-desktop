@@ -653,31 +653,43 @@ func (a *App) syncMouse() {
 		if x != a.lastX || y != a.lastY || buttons != a.lastButtons {
 			nx, ny := a.renderRect.toHID(x, y)
 			absButtons := buttons
-			if a.shouldRouteSideButtonsToRelative() {
+			routeSideButtons := a.shouldRouteSideButtonsToRelativeFor(buttons, a.lastButtons)
+			if routeSideButtons {
 				absButtons &^= sideMouseButtonMask
 			}
-			if buttons != a.lastButtons {
-				log.Trace().
-					Int("x", x).
-					Int("y", y).
-					Int32("hid_x", nx).
-					Int32("hid_y", ny).
-					Uint8("buttons", absButtons).
-					Uint8("last_buttons", a.lastButtons).
-					Msg("sending absolute mouse report")
+			lastAbsButtons := a.lastButtons
+			if routeSideButtons {
+				lastAbsButtons &^= sideMouseButtonMask
 			}
-			if err := a.ctrl.SendAbsPointer(nx, ny, absButtons); err != nil {
-				log.Debug().
-					Err(err).
-					Int32("hid_x", nx).
-					Int32("hid_y", ny).
-					Uint8("buttons", absButtons).
-					Msg("failed to send absolute mouse report")
+			sendAbsolute := x != a.lastX || y != a.lastY || absButtons != lastAbsButtons
+			if sendAbsolute {
+				if buttons != a.lastButtons || absButtons != lastAbsButtons {
+					log.Trace().
+						Int("x", x).
+						Int("y", y).
+						Int32("hid_x", nx).
+						Int32("hid_y", ny).
+						Uint8("buttons", absButtons).
+						Uint8("last_buttons", lastAbsButtons).
+						Msg("sending absolute mouse report")
+				}
+				if err := a.ctrl.SendAbsPointer(nx, ny, absButtons); err != nil {
+					log.Debug().
+						Err(err).
+						Int32("hid_x", nx).
+						Int32("hid_y", ny).
+						Uint8("buttons", absButtons).
+						Msg("failed to send absolute mouse report")
+				}
 			}
-			if a.shouldRouteSideButtonsToRelative() {
+			if routeSideButtons {
 				sideButtons := buttons & sideMouseButtonMask
 				lastSideButtons := a.lastButtons & sideMouseButtonMask
 				if sideButtons != lastSideButtons {
+					log.Trace().
+						Uint8("buttons", sideButtons).
+						Uint8("last_buttons", lastSideButtons).
+						Msg("routing side buttons via relative mouse")
 					if err := a.ctrl.SendRelMouse(0, 0, sideButtons); err != nil {
 						log.Debug().
 							Err(err).
@@ -747,6 +759,10 @@ func (a *App) shouldRouteSideButtonsToRelative() bool {
 	devicesLoaded := a.hardwareConn.USBDevicesLoaded
 	a.mu.RUnlock()
 	return devicesLoaded && devices.AbsoluteMouse && devices.RelativeMouse
+}
+
+func (a *App) shouldRouteSideButtonsToRelativeFor(buttons, lastButtons byte) bool {
+	return a.shouldRouteSideButtonsToRelative() && (buttons|lastButtons)&sideMouseButtonMask != 0
 }
 
 func (a *App) connectionUSBDevicesSnapshot() (session.USBDevices, bool) {
