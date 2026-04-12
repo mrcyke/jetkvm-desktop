@@ -19,6 +19,7 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/discovery"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/logging"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/ui"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
@@ -549,21 +550,36 @@ func (a *App) syncKeyboard() {
 }
 
 func (a *App) syncMouse() {
-	if a.settingsOpen || a.pasteOpen || a.mediaOpen || a.ctrl.Snapshot().Phase != session.PhaseConnected {
-		return
-	}
+	log := logging.Subsystem("app")
+	snapshot := a.ctrl.Snapshot()
 	x, y := ebiten.CursorPosition()
-	buttons := byte(0)
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		buttons |= 1
-	}
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-		buttons |= 2
+	buttons := currentMouseButtons(ebiten.IsMouseButtonPressed)
+	if a.settingsOpen || a.pasteOpen || a.mediaOpen || snapshot.Phase != session.PhaseConnected {
+		if buttons != 0 {
+			log.Trace().
+				Int("x", x).
+				Int("y", y).
+				Uint8("buttons", buttons).
+				Bool("settings_open", a.settingsOpen).
+				Bool("paste_open", a.pasteOpen).
+				Bool("media_open", a.mediaOpen).
+				Str("phase", snapshot.Phase.String()).
+				Msg("mouse input suppressed")
+		}
+		return
 	}
 	if a.suppressMouseUntilUp {
 		a.lastX = x
 		a.lastY = y
+		if buttons != 0 || a.lastButtons != 0 {
+			log.Trace().
+				Int("x", x).
+				Int("y", y).
+				Uint8("buttons", buttons).
+				Msg("mouse input suppressed until buttons released")
+		}
 		if buttons == 0 {
+			log.Trace().Msg("mouse suppression cleared")
 			a.suppressMouseUntilUp = false
 			a.lastButtons = 0
 		}
@@ -573,16 +589,44 @@ func (a *App) syncMouse() {
 		dx := int8(clamp(float64(x-a.lastX), -127, 127))
 		dy := int8(clamp(float64(y-a.lastY), -127, 127))
 		if dx != 0 || dy != 0 || buttons != a.lastButtons {
-			_ = a.ctrl.SendRelMouse(dx, dy, buttons)
+			log.Trace().
+				Int8("dx", dx).
+				Int8("dy", dy).
+				Uint8("buttons", buttons).
+				Uint8("last_buttons", a.lastButtons).
+				Msg("sending relative mouse report")
+			if err := a.ctrl.SendRelMouse(dx, dy, buttons); err != nil {
+				log.Debug().
+					Err(err).
+					Int8("dx", dx).
+					Int8("dy", dy).
+					Uint8("buttons", buttons).
+					Msg("failed to send relative mouse report")
+			}
 		}
 	} else {
 		if !a.renderRect.valid() {
+			if buttons != 0 {
+				log.Debug().
+					Int("x", x).
+					Int("y", y).
+					Uint8("buttons", buttons).
+					Msg("mouse input dropped because render rect is invalid")
+			}
 			return
 		}
 		if time.Now().Before(a.resizeUntil) {
 			a.lastX = x
 			a.lastY = y
 			a.lastButtons = buttons
+			if buttons != 0 {
+				log.Trace().
+					Int("x", x).
+					Int("y", y).
+					Uint8("buttons", buttons).
+					Time("resize_until", a.resizeUntil).
+					Msg("mouse input delayed during resize")
+			}
 			return
 		}
 		if !a.renderRect.contains(x, y) && buttons == 0 && a.lastButtons == 0 {
@@ -592,7 +636,22 @@ func (a *App) syncMouse() {
 		}
 		if x != a.lastX || y != a.lastY || buttons != a.lastButtons {
 			nx, ny := a.renderRect.toHID(x, y)
-			_ = a.ctrl.SendAbsPointer(nx, ny, buttons)
+			log.Trace().
+				Int("x", x).
+				Int("y", y).
+				Int32("hid_x", nx).
+				Int32("hid_y", ny).
+				Uint8("buttons", buttons).
+				Uint8("last_buttons", a.lastButtons).
+				Msg("sending absolute mouse report")
+			if err := a.ctrl.SendAbsPointer(nx, ny, buttons); err != nil {
+				log.Debug().
+					Err(err).
+					Int32("hid_x", nx).
+					Int32("hid_y", ny).
+					Uint8("buttons", buttons).
+					Msg("failed to send absolute mouse report")
+			}
 		}
 	}
 	_, wheelY := ebiten.Wheel()
@@ -600,7 +659,9 @@ func (a *App) syncMouse() {
 		delta := normalizeWheelDelta(wheelY, a.invertScroll)
 		if delta != 0 {
 			a.runAsync(func() {
-				_ = a.ctrl.SendWheel(delta)
+				if err := a.ctrl.SendWheel(delta); err != nil {
+					log.Debug().Err(err).Int8("delta", delta).Msg("failed to send mouse wheel report")
+				}
 			})
 		}
 		a.lastWheelAt = time.Now()
@@ -608,6 +669,37 @@ func (a *App) syncMouse() {
 	a.lastX = x
 	a.lastY = y
 	a.lastButtons = buttons
+}
+
+const (
+	mouseButtonLeftMask    byte = 1 << 0
+	mouseButtonRightMask   byte = 1 << 1
+	mouseButtonMiddleMask  byte = 1 << 2
+	mouseButtonBackMask    byte = 1 << 3
+	mouseButtonForwardMask byte = 1 << 4
+)
+
+type mouseButtonBinding struct {
+	button ebiten.MouseButton
+	mask   byte
+}
+
+var supportedMouseButtons = [...]mouseButtonBinding{
+	{button: ebiten.MouseButtonLeft, mask: mouseButtonLeftMask},
+	{button: ebiten.MouseButtonRight, mask: mouseButtonRightMask},
+	{button: ebiten.MouseButtonMiddle, mask: mouseButtonMiddleMask},
+	{button: ebiten.MouseButton3, mask: mouseButtonBackMask},
+	{button: ebiten.MouseButton4, mask: mouseButtonForwardMask},
+}
+
+func currentMouseButtons(isPressed func(ebiten.MouseButton) bool) byte {
+	buttons := byte(0)
+	for _, binding := range supportedMouseButtons {
+		if isPressed(binding.button) {
+			buttons |= binding.mask
+		}
+	}
+	return buttons
 }
 
 func clamp(value, minValue, maxValue float64) float64 {

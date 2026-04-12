@@ -16,6 +16,7 @@ import (
 
 	"github.com/lkarlslund/jetkvm-desktop/pkg/client"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/logging"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/auth"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/virtualmedia"
 )
@@ -1366,19 +1367,35 @@ func (c *Controller) SendKeypressKeepAlive() error {
 }
 
 func (c *Controller) SendAbsPointer(x, y int32, buttons byte) error {
+	log := logging.Subsystem("session")
 	current := c.clientIfConnected()
 	if current == nil {
-		return errors.New("client not connected")
+		err := errors.New("client not connected")
+		log.Debug().Err(err).Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("failed to send absolute pointer")
+		return err
 	}
-	return current.SendAbsPointer(x, y, buttons)
+	log.Trace().Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("forwarding absolute pointer")
+	if err := current.SendAbsPointer(x, y, buttons); err != nil {
+		log.Debug().Err(err).Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("failed to forward absolute pointer")
+		return err
+	}
+	return nil
 }
 
 func (c *Controller) SendRelMouse(dx, dy int8, buttons byte) error {
+	log := logging.Subsystem("session")
 	current := c.clientIfConnected()
 	if current == nil {
-		return errors.New("client not connected")
+		err := errors.New("client not connected")
+		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to send relative mouse")
+		return err
 	}
-	return current.SendRelMouse(dx, dy, buttons)
+	log.Trace().Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("forwarding relative mouse")
+	if err := current.SendRelMouse(dx, dy, buttons); err != nil {
+		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to forward relative mouse")
+		return err
+	}
+	return nil
 }
 
 func (c *Controller) SendWheel(delta int8) error {

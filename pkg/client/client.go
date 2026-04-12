@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
 
+	"github.com/lkarlslund/jetkvm-desktop/pkg/logging"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/auth"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/hidrpc"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/protocol/jsonrpc"
@@ -395,27 +396,45 @@ func (c *Client) SendKeypressKeepAlive() error {
 }
 
 func (c *Client) SendAbsPointer(x, y int32, buttons byte) error {
+	log := logging.Subsystem("client")
 	if c.hidUnreliable == nil {
-		return fmt.Errorf("pointer channel not ready")
+		err := fmt.Errorf("pointer channel not ready")
+		log.Debug().Err(err).Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("failed to send absolute pointer")
+		return err
 	}
 	msg := hidrpc.Pointer{X: x, Y: y, Buttons: buttons}
 	data, err := msg.MarshalBinary()
 	if err != nil {
+		log.Debug().Err(err).Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("failed to marshal absolute pointer")
 		return err
 	}
-	return c.hidUnreliable.Send(data)
+	log.Trace().Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("sending absolute pointer")
+	if err := c.hidUnreliable.Send(data); err != nil {
+		log.Debug().Err(err).Int32("x", x).Int32("y", y).Uint8("buttons", buttons).Msg("failed to send absolute pointer")
+		return err
+	}
+	return nil
 }
 
 func (c *Client) SendRelMouse(dx, dy int8, buttons byte) error {
+	log := logging.Subsystem("client")
 	if c.hidDC == nil {
-		return fmt.Errorf("hid channel not ready")
+		err := fmt.Errorf("hid channel not ready")
+		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to send relative mouse")
+		return err
 	}
 	msg := hidrpc.Mouse{DX: dx, DY: dy, Buttons: buttons}
 	data, err := msg.MarshalBinary()
 	if err != nil {
+		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to marshal relative mouse")
 		return err
 	}
-	return c.hidDC.Send(data)
+	log.Trace().Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("sending relative mouse")
+	if err := c.hidDC.Send(data); err != nil {
+		log.Debug().Err(err).Int8("dx", dx).Int8("dy", dy).Uint8("buttons", buttons).Msg("failed to send relative mouse")
+		return err
+	}
+	return nil
 }
 
 func (c *Client) SendWheel(delta int8) error {

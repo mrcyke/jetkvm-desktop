@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
+
 	"github.com/lkarlslund/jetkvm-desktop/pkg/emulator"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
@@ -43,6 +45,24 @@ func TestNormalizeBaseURLRejectsInvalidHost(t *testing.T) {
 		if _, err := normalizeBaseURL(value); err == nil {
 			t.Fatalf("expected error for %q", value)
 		}
+	}
+}
+
+func TestCurrentMouseButtonsMapsAllSupportedButtons(t *testing.T) {
+	pressed := map[ebiten.MouseButton]bool{
+		ebiten.MouseButtonLeft:   true,
+		ebiten.MouseButtonRight:  true,
+		ebiten.MouseButtonMiddle: true,
+		ebiten.MouseButton3:      true,
+		ebiten.MouseButton4:      true,
+	}
+
+	got := currentMouseButtons(func(button ebiten.MouseButton) bool {
+		return pressed[button]
+	})
+	want := mouseButtonLeftMask | mouseButtonRightMask | mouseButtonMiddleMask | mouseButtonBackMask | mouseButtonForwardMask
+	if got != want {
+		t.Fatalf("currentMouseButtons(...) = %08b, want %08b", got, want)
 	}
 }
 
