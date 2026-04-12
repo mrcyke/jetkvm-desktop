@@ -49,21 +49,26 @@ func (a *App) sortDiscovered() {
 }
 
 func (a *App) syncLauncherInput() {
-	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
-		value := a.launcherInput
-		if a.launcherMode == launcherModePassword {
-			value = a.launcherPassword
+	switch a.launcherMode {
+	case launcherModeBrowse:
+		if a.textInput.FieldID != "launcher_focus_input" {
+			a.textInput.Sync(&ui.TextInputBinding{
+				ID:       "launcher_focus_input",
+				Value:    a.launcherInput,
+				TextSize: 15,
+			})
 		}
-		runes := []rune(value)
-		if len(runes) > 0 {
-			value = string(runes[:len(runes)-1])
-			if a.launcherMode == launcherModeBrowse {
-				a.launcherInput = value
-			} else {
-				a.launcherPassword = value
-			}
+	case launcherModePassword:
+		if a.textInput.FieldID != "launcher_focus_password" {
+			a.textInput.Sync(&ui.TextInputBinding{
+				ID:           "launcher_focus_password",
+				Value:        a.launcherPassword,
+				DisplayValue: strings.Repeat("*", len([]rune(a.launcherPassword))),
+				TextSize:     15,
+			})
 		}
 	}
+	a.syncFocusedTextInput()
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 		if a.launcherMode == launcherModePassword {
 			a.connectFromLauncher(a.pendingTarget)
@@ -71,15 +76,6 @@ func (a *App) syncLauncherInput() {
 			a.connectFromLauncher(a.launcherInput)
 		}
 		return
-	}
-	for _, r := range ebiten.AppendInputChars(nil) {
-		if r >= 32 && r != 127 {
-			if a.launcherMode == launcherModeBrowse {
-				a.launcherInput += string(r)
-			} else {
-				a.launcherPassword += string(r)
-			}
-		}
 	}
 }
 
@@ -322,10 +318,10 @@ func (launcherInputElement) Measure(_ *ui.Context, constraints ui.Constraints) u
 }
 
 func (e launcherInputElement) Draw(ctx *ui.Context, bounds ui.Rect) {
-	ui.TextField{
+	e.app.decorateTextField(ui.TextField{
+		ID:               "launcher_focus_input",
 		Value:            e.app.launcherInput,
 		Placeholder:      "jetkvm.local or 192.168.1.50",
-		Focused:          true,
 		Enabled:          true,
 		TextSize:         15,
 		FillColor:        ctx.Theme.InputFill,
@@ -334,7 +330,7 @@ func (e launcherInputElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		TextColor:        ctx.Theme.Body,
 		PlaceholderColor: ctx.Theme.DisabledText,
 		CaretColor:       ctx.Theme.AccentText,
-	}.Draw(ctx, bounds)
+	}).Draw(ctx, bounds)
 }
 
 type launcherPasswordElement struct {
@@ -387,10 +383,10 @@ func (launcherPasswordFieldElement) Measure(_ *ui.Context, constraints ui.Constr
 }
 
 func (e launcherPasswordFieldElement) Draw(ctx *ui.Context, bounds ui.Rect) {
-	ui.TextField{
+	e.app.decorateTextField(ui.TextField{
+		ID:               "launcher_focus_password",
 		DisplayValue:     e.passDisplay,
 		Placeholder:      "Local password",
-		Focused:          true,
 		Enabled:          true,
 		TextSize:         15,
 		FillColor:        ctx.Theme.InputFill,
@@ -399,7 +395,7 @@ func (e launcherPasswordFieldElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		TextColor:        ctx.Theme.Body,
 		PlaceholderColor: ctx.Theme.DisabledText,
 		CaretColor:       ctx.Theme.Error,
-	}.Draw(ctx, bounds)
+	}).Draw(ctx, bounds)
 }
 
 func humanDiscoveryAge(at time.Time) string {

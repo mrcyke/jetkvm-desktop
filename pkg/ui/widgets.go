@@ -186,6 +186,9 @@ type TextField struct {
 	Value            string
 	DisplayValue     string
 	Placeholder      string
+	CaretIndex       int
+	SelectionStart   int
+	SelectionEnd     int
 	Focused          bool
 	Enabled          bool
 	TextSize         float64
@@ -248,13 +251,102 @@ func (t TextField) Draw(ctx *Context, bounds Rect) {
 		}
 	}
 	textY := bounds.Y + (bounds.H-LineHeight(textSize))/2
-	ctx.DrawText(ctx.Screen, text, bounds.X+12, textY, textSize, textColor)
+	textX := bounds.X + 12
+	textWidth := max(0, bounds.W-24)
+	runes := []rune(text)
+	caretIndex := 0
+	if !showPlaceholder {
+		caretIndex = t.CaretIndex
+		if caretIndex < 0 {
+			caretIndex = 0
+		}
+		if caretIndex > len(runes) {
+			caretIndex = len(runes)
+		}
+	}
+	scrollX := 0.0
+	if !showPlaceholder && textWidth > 0 {
+		caretPixel, _ := ctx.MeasureText(string(runes[:caretIndex]), textSize)
+		textPixel, _ := ctx.MeasureText(text, textSize)
+		if textPixel > textWidth {
+			scrollX = caretPixel - textWidth + 8
+			if scrollX < 0 {
+				scrollX = 0
+			}
+			maxScroll := textPixel - textWidth
+			if scrollX > maxScroll {
+				scrollX = maxScroll
+			}
+		}
+	}
+	visibleStart := 0
+	visibleEnd := len(runes)
+	if !showPlaceholder && textWidth > 0 && len(runes) > 0 {
+		for visibleStart < len(runes) {
+			prefixW, _ := ctx.MeasureText(string(runes[:visibleStart+1]), textSize)
+			if prefixW > scrollX {
+				break
+			}
+			visibleStart++
+		}
+		visibleEnd = len(runes)
+		for visibleEnd > visibleStart {
+			visibleW, _ := ctx.MeasureText(string(runes[visibleStart:visibleEnd]), textSize)
+			if visibleW <= textWidth {
+				break
+			}
+			visibleEnd--
+		}
+		if visibleEnd < visibleStart {
+			visibleEnd = visibleStart
+		}
+	}
+	visibleText := text
+	if !showPlaceholder {
+		visibleText = string(runes[visibleStart:visibleEnd])
+	}
+	if !showPlaceholder && t.SelectionStart != t.SelectionEnd {
+		startIndex := t.SelectionStart
+		if startIndex < 0 {
+			startIndex = 0
+		}
+		if startIndex > len(runes) {
+			startIndex = len(runes)
+		}
+		endIndex := t.SelectionEnd
+		if endIndex < 0 {
+			endIndex = 0
+		}
+		if endIndex > len(runes) {
+			endIndex = len(runes)
+		}
+		if endIndex < startIndex {
+			startIndex, endIndex = endIndex, startIndex
+		}
+		highlightStart := max(float64(startIndex), float64(visibleStart))
+		highlightEnd := min(float64(endIndex), float64(visibleEnd))
+		if highlightEnd > highlightStart {
+			prefix := string(runes[visibleStart:int(highlightStart)])
+			selected := string(runes[int(highlightStart):int(highlightEnd)])
+			prefixW, _ := ctx.MeasureText(prefix, textSize)
+			selectedW, _ := ctx.MeasureText(selected, textSize)
+			ctx.FillRect(Rect{X: textX + prefixW - 1, Y: textY - 1, W: selectedW + 2, H: LineHeight(textSize) + 2}, ctx.Theme.ActiveFill)
+		}
+	}
+	ctx.DrawText(ctx.Screen, visibleText, textX, textY, textSize, textColor)
 	if !t.Focused || time.Now().UnixNano()/500_000_000%2 != 0 {
 		return
 	}
-	caretX := bounds.X + 12
+	caretX := textX
 	if !showPlaceholder {
-		textW, _ := ctx.MeasureText(text, textSize)
+		caretBase := caretIndex
+		if caretBase < visibleStart {
+			caretBase = visibleStart
+		}
+		if caretBase > visibleEnd {
+			caretBase = visibleEnd
+		}
+		textW, _ := ctx.MeasureText(string(runes[visibleStart:caretBase]), textSize)
 		caretX += textW + 2
 	}
 	caretH := LineHeight(textSize)
