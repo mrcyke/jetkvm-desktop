@@ -10,6 +10,7 @@ A native desktop client for JetKVM with local discovery, direct connect, remote 
 - Connects directly by hostname, mDNS name, or IP
 - Shows the remote video feed in a native desktop window
 - Sends keyboard and mouse input to the target machine
+- Supports mouse back/forward side buttons in the native client, unlike the browser UI
 - Prompts for a password when the device requires it
 - Exposes the main settings and connection stats without opening the browser UI
 
