@@ -3460,6 +3460,7 @@ func (a *App) syncSessionState() {
 	}
 	if phase == session.PhaseConnected && a.lastPhase != session.PhaseConnected {
 		a.resetConnectionHardwareState()
+		a.maybeExpandBrowseWindow()
 		a.launcherOpen = false
 		a.launcherMode = launcherModeBrowse
 		a.launcherError = ""

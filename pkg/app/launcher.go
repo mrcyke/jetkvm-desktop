@@ -115,8 +115,8 @@ func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		ui.Fixed(ui.Spacer{H: 12}),
 		ui.Fixed(ui.Label{Text: "Available devices on your local network", Size: 15, Color: ctx.Theme.Muted}),
 		ui.Fixed(ui.Spacer{H: 28}),
-		ui.Fixed(ui.Constrained{
-			MinH: 240,
+		ui.Flex(ui.Constrained{
+			MinH: 120,
 			MaxH: 520,
 			Child: ui.Panel{
 				Fill:   ctx.Theme.PanelFill,
@@ -124,7 +124,7 @@ func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 				Insets: ui.UniformInsets(18),
 				Child:  launcherListElement(e),
 			},
-		}),
+		}, 1),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(ui.Column{
 			Children: []ui.Child{
