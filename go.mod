@@ -1,10 +1,9 @@
 module github.com/lkarlslund/jetkvm-desktop
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/Azunyan1111/openh264-go v0.2.0
-	github.com/dmarkham/enumer v1.6.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
 	github.com/pion/rtp v1.10.1
@@ -17,6 +16,7 @@ require (
 
 require (
 	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
+	github.com/dmarkham/enumer v1.6.3 // indirect
 	github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 // indirect
 	github.com/ebitengine/hideconsole v1.0.0 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
