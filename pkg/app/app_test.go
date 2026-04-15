@@ -203,6 +203,65 @@ func TestNormalizeWheelDeltaXRespectsInvertScroll(t *testing.T) {
 	}
 }
 
+func TestVideoCodecH265ClickOpensConfirmation(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.sectionData.Video.State.Codec = session.VideoCodecH264
+	app.invokeAction("video_codec:h265")
+
+	if !app.h265ConfirmOpen {
+		t.Fatal("expected H265 confirmation to open")
+	}
+	if state := app.settingsAction(settingsGroupVideoCodec); state.Pending {
+		t.Fatal("expected codec change to wait for confirmation")
+	}
+}
+
+func TestVideoCodecH265CancelClosesConfirmation(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.h265ConfirmOpen = true
+	app.invokeAction("video_codec_h265_cancel")
+
+	if app.h265ConfirmOpen {
+		t.Fatal("expected H265 confirmation to close")
+	}
+}
+
+func TestVideoCodecH265ConfirmStartsCodecChange(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.ctrl = session.New(session.Config{})
+	app.h265ConfirmOpen = true
+	app.invokeAction("video_codec_h265_confirm")
+
+	if app.h265ConfirmOpen {
+		t.Fatal("expected H265 confirmation to close on confirm")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := app.settingsAction(settingsGroupVideoCodec)
+		if !state.Pending {
+			if state.Error == "" {
+				t.Fatal("expected codec change to fail without a connected client")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for codec action to settle")
+}
+
 func TestDefaultPreferencesEnableAbsoluteSideButtonFallback(t *testing.T) {
 	prefs := defaultPreferences()
 	if !prefs.AbsoluteSideButtonsViaRel {

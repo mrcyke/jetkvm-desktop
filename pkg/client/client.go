@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -197,9 +198,13 @@ func (c *Client) Connect(ctx context.Context) error {
 		c.videoStream = stream
 		c.emitLifecycle(LifecycleEvent{Type: "video_ready"})
 	})
-	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+	videoTransceiver, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
-	}); err != nil {
+	})
+	if err != nil {
+		return err
+	}
+	if err := restrictVideoTransceiverToH264(videoTransceiver); err != nil {
 		return err
 	}
 
@@ -279,6 +284,19 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	c.emitLifecycle(LifecycleEvent{Type: "connected"})
 	return nil
+}
+
+func restrictVideoTransceiverToH264(transceiver *webrtc.RTPTransceiver) error {
+	return transceiver.SetCodecPreferences([]webrtc.RTPCodecParameters{{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeH264,
+			ClockRate: 90000,
+		},
+	}})
+}
+
+func offerAdvertisesH265(offer webrtc.SessionDescription) bool {
+	return strings.Contains(strings.ToUpper(offer.SDP), "H265")
 }
 
 func (c *Client) handleTransportDisconnect(state webrtc.PeerConnectionState, source string) {

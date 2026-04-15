@@ -128,6 +128,7 @@ type App struct {
 	videoCustomEDIDDirty   bool
 	videoCustomEDIDMessage string
 	videoCustomEDIDSuccess bool
+	h265ConfirmOpen        bool
 	advancedSSHKey         string
 	advancedSSHLoaded      bool
 	advancedSSHDirty       bool
@@ -2224,10 +2225,16 @@ func (a *App) invokeAction(id string) {
 	case "tls_custom_save":
 		a.invokeCustomTLS()
 	case "video_codec:auto":
+		a.h265ConfirmOpen = false
 		a.invokeVideoCodecAction("auto", session.VideoCodecAuto)
 	case "video_codec:h265":
-		a.invokeVideoCodecAction("h265", session.VideoCodecH265)
+		a.openH265CodecConfirm()
+	case "video_codec_h265_confirm":
+		a.confirmH265CodecAction()
+	case "video_codec_h265_cancel":
+		a.h265ConfirmOpen = false
 	case "video_codec:h264":
+		a.h265ConfirmOpen = false
 		a.invokeVideoCodecAction("h264", session.VideoCodecH264)
 	case "video_edid:jetkvm_default":
 		a.invokeEDIDAction("jetkvm_default", videoEDIDPresetJetKVMDefault)
@@ -2861,6 +2868,18 @@ func (a *App) invokeVideoCodecAction(choice string, codec session.VideoCodec) {
 		}
 		return a.refreshSettingsSectionSync(sectionVideo)
 	})
+}
+
+func (a *App) openH265CodecConfirm() {
+	if a.settingsActionPending(settingsGroupVideoCodec) || a.sectionData.Video.State.Codec == session.VideoCodecH265 {
+		return
+	}
+	a.h265ConfirmOpen = true
+}
+
+func (a *App) confirmH265CodecAction() {
+	a.h265ConfirmOpen = false
+	a.invokeVideoCodecAction("h265", session.VideoCodecH265)
 }
 
 func (a *App) invokeEDIDAction(choice, edid string) {
@@ -3534,6 +3553,7 @@ func (a *App) closeSettingsOverlay() {
 		return
 	}
 	a.settingsOpen = false
+	a.h265ConfirmOpen = false
 	a.settingsInputFocus = settingsInputNone
 	a.closeJigglerEditor()
 	a.clearAccessEditor("", false)

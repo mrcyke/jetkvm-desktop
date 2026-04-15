@@ -97,3 +97,29 @@ func TestStatsSkipsPeerConnectionPollingAfterClose(t *testing.T) {
 
 	_ = c.Stats()
 }
+
+func TestRestrictVideoTransceiverToH264RemovesH265FromOffer(t *testing.T) {
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+
+	transceiver, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionRecvonly,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restrictVideoTransceiverToH264(transceiver); err != nil {
+		t.Fatalf("restrictVideoTransceiverToH264 returned error: %v", err)
+	}
+
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offerAdvertisesH265(offer) {
+		t.Fatalf("expected offer to omit H265, got SDP:\n%s", offer.SDP)
+	}
+}

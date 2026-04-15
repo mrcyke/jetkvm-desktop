@@ -692,7 +692,7 @@ func (e settingsOverlayElement) Measure(_ *ui.Context, constraints ui.Constraint
 }
 
 func (e settingsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
-	ui.Stack{Children: []ui.Element{
+	children := []ui.Element{
 		ui.Row{
 			Children: []ui.Child{
 				ui.Fixed(ui.Constrained{
@@ -734,6 +734,53 @@ func (e settingsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 				Horizontal: ui.AlignEnd,
 				Vertical:   ui.AlignStart,
 				Child:      ui.Button{ID: "settings_close", Label: "X", Enabled: true},
+			},
+		},
+	}
+	if e.app.h265ConfirmOpen {
+		children = append(children, settingsH265ConfirmElement{app: e.app})
+	}
+	ui.Stack{Children: children}.Draw(ctx, bounds)
+}
+
+type settingsH265ConfirmElement struct {
+	app *App
+}
+
+func (settingsH265ConfirmElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
+	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: constraints.MaxH})
+}
+
+func (e settingsH265ConfirmElement) Draw(ctx *ui.Context, bounds ui.Rect) {
+	panelW := min(520, bounds.W-56)
+	ui.Stack{Children: []ui.Element{
+		ui.Backdrop{Color: color.RGBA{A: 80}},
+		ui.Align{
+			Horizontal: ui.AlignCenter,
+			Vertical:   ui.AlignCenter,
+			Child: ui.Constrained{
+				MaxW: panelW,
+				Child: ui.Panel{
+					Fill:   ctx.Theme.ModalFill,
+					Stroke: ctx.Theme.ModalStroke,
+					Insets: ui.UniformInsets(22),
+					Child: ui.Column{
+						Children: []ui.Child{
+							ui.Fixed(ui.Label{Text: "H265 Is Not Supported", Size: 20, Color: ctx.Theme.Title}),
+							ui.Fixed(ui.Spacer{H: 12}),
+							ui.Fixed(ui.Paragraph{
+								Text:  "This desktop client cannot decode H265/HEVC video yet. If you continue, the JetKVM may switch to H265 and video may stop until you change it back.",
+								Size:  13,
+								Color: ctx.Theme.Body,
+							}),
+							ui.Fixed(ui.Spacer{H: 16}),
+							ui.Fixed(ui.Wrap{Children: []ui.Element{
+								settingsActionElement("video_codec_h265_confirm", "Switch To H265", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 132),
+								settingsActionElement("video_codec_h265_cancel", "Cancel", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 84),
+							}, Spacing: 12, LineSpacing: 8}),
+						},
+					},
+				},
 			},
 		},
 	}}.Draw(ctx, bounds)
