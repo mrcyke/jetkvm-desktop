@@ -170,6 +170,33 @@ func TestSettingsToggleRowUpdatesRuntimeStateOnClick(t *testing.T) {
 	}
 }
 
+func TestSettingsAccessEditorModalConsumesBackdropClicks(t *testing.T) {
+	app, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.accessEditor = accessEditorState{Mode: accessEditorModeUpdate}
+
+	runtime := &ui.Runtime{}
+	ctx := &ui.Context{
+		Screen:   ebiten.NewImage(800, 600),
+		Theme:    ui.DefaultTheme(),
+		Runtime:  runtime,
+		OnAction: app.invokeAction,
+	}
+
+	runtime.BeginFrame()
+	settingsAccessEditorModalElement{app: app}.Draw(ctx, ui.Rect{X: 0, Y: 0, W: 800, H: 600})
+
+	point := ui.Point{X: 20, Y: 20}
+	if !runtime.HandlePointer(point, true, true, false) {
+		t.Fatal("expected backdrop click to be consumed on press")
+	}
+	if !runtime.HandlePointer(point, false, false, true) {
+		t.Fatal("expected backdrop click to be consumed on release")
+	}
+}
+
 func TestSectionLoadSeqMonotonic(t *testing.T) {
 	app, err := New(Config{})
 	if err != nil {

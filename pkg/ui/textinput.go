@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -11,16 +12,21 @@ import (
 )
 
 const (
-	textInputRepeatDelay    = 24
-	textInputRepeatInterval = 3
+	textInputRepeatDelay    = 400 * time.Millisecond
+	textInputRepeatInterval = 33 * time.Millisecond
 	textFieldHorizontalPad  = 12.0
 )
 
 type TextInputState struct {
-	FieldID  string
-	Anchor   int
-	Caret    int
-	Dragging bool
+	FieldID      string
+	Anchor       int
+	Caret        int
+	Dragging     bool
+	repeatKey    ebiten.Key
+	repeatNextAt time.Time
+	now          func() time.Time
+	keyPressed   func(ebiten.Key) bool
+	keyJustPress func(ebiten.Key) bool
 }
 
 type TextInputBinding struct {
@@ -41,6 +47,7 @@ var textClipboardReady = clipboard.Init() == nil
 func (s *TextInputState) ClearFocus() {
 	s.Dragging = false
 	s.FieldID = ""
+	s.resetKeyRepeat()
 }
 
 func (s *TextInputState) Sync(binding *TextInputBinding) {
@@ -54,6 +61,7 @@ func (s *TextInputState) Sync(binding *TextInputBinding) {
 		s.Anchor = caret
 		s.Caret = caret
 		s.Dragging = false
+		s.resetKeyRepeat()
 		return
 	}
 	caret := utf8.RuneCountInString(binding.Value)
@@ -156,7 +164,7 @@ func (s *TextInputState) HandleInput(binding TextInputBinding) TextInputResult {
 	shift := shiftPressed()
 	runes := []rune(binding.Value)
 	switch {
-	case repeatingKeyPressed(ebiten.KeyLeft):
+	case s.repeatingKeyPressed(ebiten.KeyLeft):
 		if s.HasSelection() && !shift {
 			s.Caret = s.SelectionStart()
 			s.Anchor = s.Caret
@@ -169,7 +177,7 @@ func (s *TextInputState) HandleInput(binding TextInputBinding) TextInputResult {
 			s.Anchor = s.Caret
 		}
 		return TextInputResult{Value: binding.Value, Handled: true}
-	case repeatingKeyPressed(ebiten.KeyRight):
+	case s.repeatingKeyPressed(ebiten.KeyRight):
 		if s.HasSelection() && !shift {
 			s.Caret = s.SelectionEnd()
 			s.Anchor = s.Caret
@@ -182,19 +190,19 @@ func (s *TextInputState) HandleInput(binding TextInputBinding) TextInputResult {
 			s.Anchor = s.Caret
 		}
 		return TextInputResult{Value: binding.Value, Handled: true}
-	case repeatingKeyPressed(ebiten.KeyHome):
+	case s.repeatingKeyPressed(ebiten.KeyHome):
 		s.Caret = 0
 		if !shift {
 			s.Anchor = s.Caret
 		}
 		return TextInputResult{Value: binding.Value, Handled: true}
-	case repeatingKeyPressed(ebiten.KeyEnd):
+	case s.repeatingKeyPressed(ebiten.KeyEnd):
 		s.Caret = len(runes)
 		if !shift {
 			s.Anchor = s.Caret
 		}
 		return TextInputResult{Value: binding.Value, Handled: true}
-	case repeatingKeyPressed(ebiten.KeyBackspace):
+	case s.repeatingKeyPressed(ebiten.KeyBackspace):
 		if s.HasSelection() {
 			next := s.deleteSelection(binding.Value)
 			return TextInputResult{Value: next, Changed: next != binding.Value, Handled: true}
@@ -207,7 +215,7 @@ func (s *TextInputState) HandleInput(binding TextInputBinding) TextInputResult {
 		s.Caret--
 		s.Anchor = s.Caret
 		return TextInputResult{Value: next, Changed: true, Handled: true}
-	case repeatingKeyPressed(ebiten.KeyDelete):
+	case s.repeatingKeyPressed(ebiten.KeyDelete):
 		if s.HasSelection() {
 			next := s.deleteSelection(binding.Value)
 			return TextInputResult{Value: next, Changed: next != binding.Value, Handled: true}
@@ -307,15 +315,52 @@ func (b TextInputBinding) displayText() string {
 	return b.Value
 }
 
-func repeatingKeyPressed(key ebiten.Key) bool {
-	duration := inpututil.KeyPressDuration(key)
-	if duration == 1 {
+func (s *TextInputState) repeatingKeyPressed(key ebiten.Key) bool {
+	now := s.timeNow()
+	if s.isKeyJustPressed(key) {
+		s.repeatKey = key
+		s.repeatNextAt = now.Add(textInputRepeatDelay)
 		return true
 	}
-	if duration < textInputRepeatDelay {
+	if !s.isKeyPressed(key) {
+		if s.repeatKey == key {
+			s.resetKeyRepeat()
+		}
 		return false
 	}
-	return (duration-textInputRepeatDelay)%textInputRepeatInterval == 0
+	if s.repeatKey != key || s.repeatNextAt.IsZero() || now.Before(s.repeatNextAt) {
+		return false
+	}
+	for !s.repeatNextAt.After(now) {
+		s.repeatNextAt = s.repeatNextAt.Add(textInputRepeatInterval)
+	}
+	return true
+}
+
+func (s *TextInputState) resetKeyRepeat() {
+	s.repeatKey = 0
+	s.repeatNextAt = time.Time{}
+}
+
+func (s *TextInputState) timeNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func (s *TextInputState) isKeyPressed(key ebiten.Key) bool {
+	if s.keyPressed != nil {
+		return s.keyPressed(key)
+	}
+	return ebiten.IsKeyPressed(key)
+}
+
+func (s *TextInputState) isKeyJustPressed(key ebiten.Key) bool {
+	if s.keyJustPress != nil {
+		return s.keyJustPress(key)
+	}
+	return inpututil.IsKeyJustPressed(key)
 }
 
 func shortcutPressed() bool {

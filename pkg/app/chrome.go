@@ -793,6 +793,9 @@ func (e settingsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	if e.app.h265ConfirmOpen {
 		children = append(children, settingsH265ConfirmElement{app: e.app})
 	}
+	if e.app.accessEditor.Mode != accessEditorModeNone {
+		children = append(children, settingsAccessEditorModalElement{app: e.app})
+	}
 	ui.Stack{Children: children}.Draw(ctx, bounds)
 }
 
@@ -831,6 +834,52 @@ func (e settingsH265ConfirmElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 								settingsActionButton("Switch To H265", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 132, e.app.confirmH265CodecAction),
 								settingsActionButton("Cancel", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 84, func() { e.app.h265ConfirmOpen = false }),
 							}, Spacing: 12, LineSpacing: 8}),
+						},
+					},
+				},
+			},
+		},
+	}}.Draw(ctx, bounds)
+}
+
+type settingsAccessEditorModalElement struct {
+	app *App
+}
+
+func (settingsAccessEditorModalElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
+	return constraints.Clamp(ui.Size{W: constraints.MaxW, H: constraints.MaxH})
+}
+
+func (e settingsAccessEditorModalElement) Draw(ctx *ui.Context, bounds ui.Rect) {
+	title, body := e.app.settingsAccessEditorContent(e.app.settingsActionPending(settingsGroupLocalAuth))
+	if body == nil {
+		return
+	}
+	if ctx.Runtime != nil {
+		ctx.Runtime.Register(ui.Control{
+			ID:      "access_modal_backdrop",
+			Rect:    bounds,
+			Enabled: true,
+			OnClick: func(ui.PointerEvent) {},
+		})
+	}
+	panelW := min(520, bounds.W-56)
+	ui.Stack{Children: []ui.Element{
+		ui.Backdrop{Color: color.RGBA{A: 80}},
+		ui.Align{
+			Horizontal: ui.AlignCenter,
+			Vertical:   ui.AlignCenter,
+			Child: ui.Constrained{
+				MaxW: panelW,
+				Child: ui.Panel{
+					Fill:   ctx.Theme.ModalFill,
+					Stroke: ctx.Theme.ModalStroke,
+					Insets: ui.UniformInsets(22),
+					Child: ui.Column{
+						Children: []ui.Child{
+							ui.Fixed(ui.Label{Text: title, Size: 20, Color: ctx.Theme.Title}),
+							ui.Fixed(ui.Spacer{H: 14}),
+							ui.Fixed(body),
 						},
 					},
 				},
@@ -1779,35 +1828,38 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 	a.mu.RLock()
 	state := a.sectionData.General
 	a.mu.RUnlock()
-	updateLabel := "No updates reported"
-	if snap.AppUpdateAvailable || snap.SystemUpdateAvailable {
-		updateLabel = "Updates available"
-	}
 	deviceCard := settingsCardElement("Device", ui.Column{Children: []ui.Child{
 		ui.Fixed(settingsKeyValueElement("Base URL", snap.BaseURL, 116)),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(settingsKeyValueElement("Phase", snap.Phase.String(), 116)),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(settingsKeyValueElement("Signaling", signalingLabel(snap.SignalingMode), 116)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("App Version", snap.AppVersion, 116)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("System Version", snap.SystemVersion, 116)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("Updates", updateLabel, 116)),
 	}})
 	updateChildren := []ui.Child{
-		ui.Fixed(settingsKeyValueElement("Local App", fallbackLabel(state.Update.Local.AppVersion, snap.AppVersion), 112)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("Local System", fallbackLabel(state.Update.Local.SystemVersion, snap.SystemVersion), 112)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("Remote App", fallbackLabel(state.Update.Remote.AppVersion, "Unavailable"), 112)),
-		ui.Fixed(ui.Spacer{H: 10}),
-		ui.Fixed(settingsKeyValueElement("Remote System", fallbackLabel(state.Update.Remote.SystemVersion, "Unavailable"), 112)),
+		ui.Fixed(ui.Row{
+			AlignY: ui.AlignStart,
+			Children: []ui.Child{
+				ui.Flex(ui.Column{Children: []ui.Child{
+					ui.Fixed(settingsSectionLabelElement("Current version")),
+					ui.Fixed(ui.Spacer{H: 8}),
+					ui.Fixed(settingsKeyValueElement("App", fallbackLabel(state.Update.Local.AppVersion, snap.AppVersion), 72)),
+					ui.Fixed(ui.Spacer{H: 10}),
+					ui.Fixed(settingsKeyValueElement("System", fallbackLabel(state.Update.Local.SystemVersion, snap.SystemVersion), 72)),
+				}}, 1),
+				ui.Fixed(ui.Spacer{W: 20}),
+				ui.Flex(ui.Column{Children: []ui.Child{
+					ui.Fixed(settingsSectionLabelElement("Detected latest")),
+					ui.Fixed(ui.Spacer{H: 8}),
+					ui.Fixed(settingsKeyValueElement("App", fallbackLabel(state.Update.Remote.AppVersion, "Unavailable"), 72)),
+					ui.Fixed(ui.Spacer{H: 10}),
+					ui.Fixed(settingsKeyValueElement("System", fallbackLabel(state.Update.Remote.SystemVersion, "Unavailable"), 72)),
+				}}, 1),
+			},
+		}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsActionButton("Check for updates", settingsActionVisual{
 			Enabled: !a.settingsActionPending(settingsGroupUpdateStatus),
-		}, 0, func() {
+		}, 152, func() {
 			if a.settingsActionPending(settingsGroupUpdateStatus) {
 				return
 			}
@@ -1822,8 +1874,42 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 			ui.Fixed(ui.Spacer{H: 8}),
 			ui.Fixed(settingsActionButton("Install updates", settingsActionVisual{
 				Enabled: !a.settingsActionPending(settingsGroupUpdateInstall),
-			}, 0, a.invokeInstallUpdates)),
+			}, 132, a.invokeInstallUpdates)),
 		)
+	}
+	autoUpdate := a.settingsAction(settingsGroupAutoUpdate)
+	updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 18}), ui.Fixed(settingsSectionLabelElement("Auto updates")), ui.Fixed(ui.Spacer{H: 8}))
+	if state.Loading {
+		updateChildren = append(updateChildren, ui.Fixed(ui.Label{Text: "Loading…", Size: 12, Color: a.currentTheme().Muted}))
+	} else {
+		updateChildren = append(updateChildren,
+			ui.Fixed(ui.Row{AlignY: ui.AlignCenter, Children: []ui.Child{
+				ui.Fixed(settingsToggleControl(settingsActionVisual{
+					Enabled: state.AutoUpdate != nil && !autoUpdate.Pending,
+					Active:  state.AutoUpdate != nil && *state.AutoUpdate,
+					Pending: autoUpdate.Pending,
+				}, func() {
+					if state.AutoUpdate == nil || autoUpdate.Pending {
+						return
+					}
+					next := !*state.AutoUpdate
+					a.withSettingsAction(settingsGroupAutoUpdate, strconv.FormatBool(next), func() error {
+						if err := a.ctrl.SetAutoUpdateState(next); err != nil {
+							return err
+						}
+						return a.refreshSettingsSectionSync(sectionGeneral)
+					})
+				})),
+				ui.Fixed(ui.Spacer{W: 12}),
+				ui.Fixed(ui.Label{Text: "Enabled", Size: 13, Color: a.currentTheme().Body}),
+			}}),
+		)
+		switch {
+		case autoUpdate.Pending:
+			updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
+		case autoUpdate.Error != "":
+			updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(autoUpdate.Error, a.currentTheme().Error)))
+		}
 	}
 	updateState := a.settingsAction(settingsGroupUpdateStatus)
 	switch {
@@ -1856,9 +1942,8 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(a.updateActionMessage, msgColor)))
 	}
 	updatesCard := settingsCardElement("Updates", ui.Column{Children: updateChildren})
-	autoUpdate := a.settingsAction(settingsGroupAutoUpdate)
 	actionChildren := []ui.Child{
-		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session, manage auto-updates, or force a device reboot.", Size: 12, Color: a.currentTheme().Muted}),
+		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session or force a device reboot.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsActionButton(reconnectLabel(snap.Phase), settingsActionVisual{Enabled: true}, 0, func() {
 			if a.ctrl == nil {
@@ -1873,41 +1958,6 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 				_ = a.ctrl.Reboot()
 			})
 		})),
-		ui.Fixed(ui.Spacer{H: 18}),
-		ui.Fixed(settingsSectionLabelElement("Auto updates")),
-		ui.Fixed(ui.Spacer{H: 8}),
-	}
-	if state.Loading {
-		actionChildren = append(actionChildren, ui.Fixed(ui.Label{Text: "Loading…", Size: 12, Color: a.currentTheme().Muted}))
-	} else {
-		actionChildren = append(actionChildren,
-			ui.Fixed(ui.Row{AlignY: ui.AlignCenter, Children: []ui.Child{
-				ui.Fixed(settingsToggleControl(settingsActionVisual{
-					Enabled: state.AutoUpdate != nil && !autoUpdate.Pending,
-					Active:  state.AutoUpdate != nil && *state.AutoUpdate,
-					Pending: autoUpdate.Pending,
-				}, func() {
-					if state.AutoUpdate == nil || autoUpdate.Pending {
-						return
-					}
-					next := !*state.AutoUpdate
-					a.withSettingsAction(settingsGroupAutoUpdate, strconv.FormatBool(next), func() error {
-						if err := a.ctrl.SetAutoUpdateState(next); err != nil {
-							return err
-						}
-						return a.refreshSettingsSectionSync(sectionGeneral)
-					})
-				})),
-				ui.Fixed(ui.Spacer{W: 12}),
-				ui.Fixed(ui.Label{Text: "Enabled", Size: 13, Color: a.currentTheme().Body}),
-			}}),
-		)
-		switch {
-		case autoUpdate.Pending:
-			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Applying…", a.currentTheme().WarningStroke)))
-		case autoUpdate.Error != "":
-			actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(autoUpdate.Error, a.currentTheme().Error)))
-		}
 	}
 	if state.Error != "" {
 		actionChildren = append(actionChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(state.Error, a.currentTheme().Error)))
@@ -2395,10 +2445,6 @@ func (a *App) settingsAccessBody() ui.Element {
 	leftChildren := []ui.Child{
 		ui.Fixed(settingsCardElement("Local Access", ui.Column{Children: localChildren})),
 	}
-	if editorCard := a.settingsAccessEditorCard(localAuthState.Pending); editorCard != nil {
-		leftChildren = append(leftChildren, ui.Fixed(ui.Spacer{H: 14}), ui.Fixed(editorCard))
-	}
-
 	tlsState := a.settingsAction(settingsGroupTLSMode)
 	tlsChildren := []ui.Child{
 		ui.Fixed(settingsKeyValueElement("Mode", string(state.State.TLS.Mode), 70)),
@@ -2512,7 +2558,7 @@ func isKnownEDIDPreset(value string) bool {
 	}
 }
 
-func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
+func (a *App) settingsAccessEditorContent(pending bool) (string, ui.Element) {
 	switch a.accessEditor.Mode {
 	case accessEditorModeCreate:
 		children := []ui.Child{
@@ -2529,7 +2575,7 @@ func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
 				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
 			}, Spacing: 12, LineSpacing: 8}),
 		}
-		return settingsCardElement("Enable Password", ui.Column{Children: children})
+		return "Enable Password", ui.Column{Children: children}
 	case accessEditorModeUpdate:
 		children := []ui.Child{
 			ui.Fixed(settingsSectionLabelElement("Current Password")),
@@ -2549,7 +2595,7 @@ func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
 				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
 			}, Spacing: 12, LineSpacing: 8}),
 		}
-		return settingsCardElement("Change Password", ui.Column{Children: children})
+		return "Change Password", ui.Column{Children: children}
 	case accessEditorModeDisable:
 		children := []ui.Child{
 			ui.Fixed(ui.Paragraph{Text: "Confirm the current password to disable local password protection.", Size: 12, Color: a.currentTheme().Muted}),
@@ -2563,9 +2609,9 @@ func (a *App) settingsAccessEditorCard(pending bool) ui.Element {
 				settingsActionElement("access_cancel_editor", "Cancel", settingsActionVisual{Enabled: !pending}, 90),
 			}, Spacing: 12, LineSpacing: 8}),
 		}
-		return settingsCardElement("Disable Password", ui.Column{Children: children})
+		return "Disable Password", ui.Column{Children: children}
 	default:
-		return nil
+		return "", nil
 	}
 }
 
