@@ -75,6 +75,7 @@ type App struct {
 	invertScroll           bool
 	showPressedKeys        bool
 	scrollThrottle         time.Duration
+	lastPointerAt          time.Time
 	lastWheelAt            time.Time
 	suppressKeysUntilClear bool
 	suppressMouseUntilUp   bool
@@ -564,6 +565,7 @@ func (a *App) syncKeyboard() {
 func (a *App) syncMouse() {
 	log := logging.Subsystem("app")
 	snapshot := a.ctrl.Snapshot()
+	now := time.Now()
 	x, y := ebiten.CursorPosition()
 	buttons := currentMouseButtons(ebiten.IsMouseButtonPressed)
 	if a.settingsOpen || a.pasteOpen || a.mediaOpen || snapshot.Phase != session.PhaseConnected {
@@ -601,9 +603,11 @@ func (a *App) syncMouse() {
 		a.ensureConnectionUSBDevicesLoaded()
 	}
 	if a.relative {
-		dx := int8(clamp(float64(x-a.lastX), -127, 127))
-		dy := int8(clamp(float64(y-a.lastY), -127, 127))
-		if dx != 0 || dy != 0 || buttons != a.lastButtons {
+		dx, dy, sendRelative := shouldSendRelativeMouse(a.lastX, a.lastY, x, y, a.lastButtons, buttons, a.lastPointerAt, now)
+		if sendRelative {
+			if shouldThrottlePointerMovement(a.lastPointerAt, now, dx != 0 || dy != 0, buttons != a.lastButtons) {
+				goto wheel
+			}
 			if buttons != a.lastButtons {
 				log.Trace().
 					Int8("dx", dx).
@@ -620,6 +624,10 @@ func (a *App) syncMouse() {
 					Uint8("buttons", buttons).
 					Msg("failed to send relative mouse report")
 			}
+			a.lastPointerAt = now
+			a.lastX = x
+			a.lastY = y
+			a.lastButtons = buttons
 		}
 	} else {
 		if !a.renderRect.valid() {
@@ -632,7 +640,7 @@ func (a *App) syncMouse() {
 			}
 			return
 		}
-		if time.Now().Before(a.resizeUntil) {
+		if now.Before(a.resizeUntil) {
 			a.lastX = x
 			a.lastY = y
 			a.lastButtons = buttons
@@ -651,7 +659,12 @@ func (a *App) syncMouse() {
 			a.lastY = y
 			return
 		}
-		if x != a.lastX || y != a.lastY || buttons != a.lastButtons {
+		positionChanged := x != a.lastX || y != a.lastY
+		buttonsChanged := buttons != a.lastButtons
+		if positionChanged || buttonsChanged {
+			if shouldThrottlePointerMovement(a.lastPointerAt, now, positionChanged, buttonsChanged) {
+				goto wheel
+			}
 			nx, ny := a.renderRect.toHID(x, y)
 			absButtons := buttons
 			routeSideButtons := a.shouldRouteSideButtonsToRelativeFor(buttons, a.lastButtons)
@@ -700,10 +713,15 @@ func (a *App) syncMouse() {
 					}
 				}
 			}
+			a.lastPointerAt = now
+			a.lastX = x
+			a.lastY = y
+			a.lastButtons = buttons
 		}
 	}
+wheel:
 	wheelX, wheelY := ebiten.Wheel()
-	if (wheelX != 0 || wheelY != 0) && (a.scrollThrottle == 0 || time.Since(a.lastWheelAt) >= a.scrollThrottle) {
+	if (wheelX != 0 || wheelY != 0) && (a.scrollThrottle == 0 || now.Sub(a.lastWheelAt) >= a.scrollThrottle) {
 		reportY := normalizeWheelDeltaY(wheelY, a.invertScroll)
 		reportX := normalizeWheelDeltaX(wheelX, a.invertScroll)
 		if reportY != 0 || reportX != 0 {
@@ -713,11 +731,31 @@ func (a *App) syncMouse() {
 				}
 			})
 		}
-		a.lastWheelAt = time.Now()
+		a.lastWheelAt = now
 	}
-	a.lastX = x
-	a.lastY = y
-	a.lastButtons = buttons
+}
+
+const pointerMoveThrottle = 8 * time.Millisecond
+
+func shouldThrottlePointerMovement(lastSentAt, now time.Time, movementChanged, buttonsChanged bool) bool {
+	if !movementChanged || buttonsChanged || lastSentAt.IsZero() {
+		return false
+	}
+	return now.Sub(lastSentAt) < pointerMoveThrottle
+}
+
+func shouldSendRelativeMouse(lastX, lastY, x, y int, lastButtons, buttons byte, lastSentAt, now time.Time) (dx, dy int8, send bool) {
+	dx = int8(clamp(float64(x-lastX), -127, 127))
+	dy = int8(clamp(float64(y-lastY), -127, 127))
+	movementChanged := dx != 0 || dy != 0
+	buttonsChanged := buttons != lastButtons
+	if !movementChanged && !buttonsChanged {
+		return 0, 0, false
+	}
+	if shouldThrottlePointerMovement(lastSentAt, now, movementChanged, buttonsChanged) {
+		return dx, dy, false
+	}
+	return dx, dy, true
 }
 
 const (

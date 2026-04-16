@@ -203,6 +203,47 @@ func TestNormalizeWheelDeltaXRespectsInvertScroll(t *testing.T) {
 	}
 }
 
+func TestShouldThrottlePointerMovement(t *testing.T) {
+	base := time.Unix(1000, 0)
+	if shouldThrottlePointerMovement(time.Time{}, base, true, false) {
+		t.Fatal("expected first movement send to bypass throttle")
+	}
+	if !shouldThrottlePointerMovement(base, base.Add(pointerMoveThrottle/2), true, false) {
+		t.Fatal("expected movement-only send inside throttle window to be throttled")
+	}
+	if shouldThrottlePointerMovement(base, base.Add(pointerMoveThrottle/2), true, true) {
+		t.Fatal("expected button changes to bypass movement throttle")
+	}
+	if shouldThrottlePointerMovement(base, base.Add(pointerMoveThrottle/2), false, false) {
+		t.Fatal("expected unchanged pointer state to bypass throttle helper")
+	}
+	if shouldThrottlePointerMovement(base, base.Add(pointerMoveThrottle), true, false) {
+		t.Fatal("expected movement send at throttle boundary to proceed")
+	}
+}
+
+func TestShouldSendRelativeMouseFlushesMovementOnButtonChange(t *testing.T) {
+	base := time.Unix(1000, 0)
+	dx, dy, send := shouldSendRelativeMouse(10, 20, 18, 27, 0, mouseButtonLeftMask, base, base.Add(pointerMoveThrottle/2))
+	if !send {
+		t.Fatal("expected button change to force an immediate relative mouse send")
+	}
+	if dx != 8 || dy != 7 {
+		t.Fatalf("shouldSendRelativeMouse(...) = (%d, %d), want (8, 7)", dx, dy)
+	}
+}
+
+func TestShouldSendRelativeMouseThrottlesMovementOnly(t *testing.T) {
+	base := time.Unix(1000, 0)
+	dx, dy, send := shouldSendRelativeMouse(10, 20, 18, 27, 0, 0, base, base.Add(pointerMoveThrottle/2))
+	if send {
+		t.Fatal("expected movement-only relative mouse send to be throttled")
+	}
+	if dx != 8 || dy != 7 {
+		t.Fatalf("shouldSendRelativeMouse(...) = (%d, %d), want (8, 7)", dx, dy)
+	}
+}
+
 func TestVideoCodecH265ClickOpensConfirmation(t *testing.T) {
 	app, err := New(Config{})
 	if err != nil {
