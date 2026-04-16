@@ -1369,18 +1369,30 @@ type settingsToggleRow struct {
 }
 
 func (e settingsToggleRow) row(ctx *ui.Context, interactive bool) ui.Element {
+	active := e.visual.Active
+	if interactive && ctx.Runtime != nil && e.id != "" {
+		active = ctx.Runtime.ToggleValue(e.id, e.visual.Active)
+	}
 	toggle := func() ui.Element {
 		if !interactive {
 			return ui.Toggle{
 				Enabled: e.visual.Enabled,
-				Active:  e.visual.Active,
+				Active:  active,
 				Pending: e.visual.Pending,
 			}
 		}
 		if e.onClick != nil {
-			return settingsToggleControl(e.visual, e.onClick)
+			return settingsToggleControl(settingsActionVisual{
+				Enabled: e.visual.Enabled,
+				Active:  active,
+				Pending: e.visual.Pending,
+			}, e.onClick)
 		}
-		return settingsToggleElement(e.id, e.visual)
+		return settingsToggleElement(e.id, settingsActionVisual{
+			Enabled: e.visual.Enabled,
+			Active:  active,
+			Pending: e.visual.Pending,
+		})
 	}()
 	return ui.Row{
 		AlignY: ui.AlignCenter,
@@ -1410,11 +1422,16 @@ func (e settingsToggleRow) Draw(ctx *ui.Context, bounds ui.Rect) {
 				ID:      e.id,
 				Rect:    bounds,
 				Enabled: e.visual.Enabled,
-				OnClick: func(ui.PointerEvent) { onClick() },
+				OnClick: func(ui.PointerEvent) {
+					if e.id != "" {
+						ctx.Runtime.SetToggleValue(e.id, !ctx.Runtime.ToggleValue(e.id, e.visual.Active))
+					}
+					onClick()
+				},
 			})
 		}
 	}
-	e.row(ctx, false).Draw(ctx, bounds)
+	e.row(ctx, true).Draw(ctx, bounds)
 }
 
 func settingsToggleRowElement(id, label string, visual settingsActionVisual) ui.Element {

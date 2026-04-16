@@ -11,6 +11,7 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/emulator"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/input"
 	"github.com/lkarlslund/jetkvm-desktop/pkg/session"
+	"github.com/lkarlslund/jetkvm-desktop/pkg/ui"
 )
 
 func TestNormalizeBaseURL(t *testing.T) {
@@ -141,6 +142,31 @@ func TestSettingsActionIgnoresStaleCompletion(t *testing.T) {
 	}
 	if state.Error != "latest failure" {
 		t.Fatalf("error = %q, want latest failure", state.Error)
+	}
+}
+
+func TestSettingsToggleRowUpdatesRuntimeStateOnClick(t *testing.T) {
+	runtime := &ui.Runtime{}
+	ctx := &ui.Context{
+		Screen:   ebiten.NewImage(240, 80),
+		Theme:    ui.DefaultTheme(),
+		Runtime:  runtime,
+		OnAction: func(string) {},
+	}
+	row := settingsToggleRowElement("toggle", "Example", settingsActionVisual{
+		Enabled: true,
+		Active:  false,
+	})
+	bounds := ui.Rect{X: 0, Y: 0, W: 220, H: 32}
+
+	runtime.BeginFrame()
+	row.Draw(ctx, bounds)
+	point := ui.Point{X: 20, Y: 16}
+	runtime.HandlePointer(point, true, true, false)
+	runtime.HandlePointer(point, false, false, true)
+
+	if !runtime.ToggleValue("toggle", false) {
+		t.Fatal("expected settings toggle row to flip runtime toggle state on click")
 	}
 }
 

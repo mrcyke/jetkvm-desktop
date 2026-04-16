@@ -68,6 +68,29 @@ func TestToggleWithoutCallbackUsesRuntimeState(t *testing.T) {
 	}
 }
 
+func TestToggleWithCallbackAndIDUsesRuntimeState(t *testing.T) {
+	t.Parallel()
+
+	runtime := &Runtime{}
+	ctx := &Context{Screen: ebiten.NewImage(128, 128), Theme: DefaultTheme(), Runtime: runtime}
+	toggle := Toggle{
+		ID:      "toggle",
+		Enabled: true,
+		OnClick: func() {},
+	}
+	bounds := Rect{X: 10, Y: 20, W: 46, H: 24}
+
+	runtime.BeginFrame()
+	toggle.Draw(ctx, bounds)
+	point := Point{X: 20, Y: 30}
+	runtime.HandlePointer(point, true, true, false)
+	runtime.HandlePointer(point, false, false, true)
+
+	if !runtime.ToggleValue("toggle", false) {
+		t.Fatal("expected callback-driven toggle to update runtime-managed state on click")
+	}
+}
+
 func TestSliderWithoutCallbacksUsesRuntimeState(t *testing.T) {
 	t.Parallel()
 

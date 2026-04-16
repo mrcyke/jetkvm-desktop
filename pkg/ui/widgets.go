@@ -102,7 +102,7 @@ func (t Toggle) Measure(_ *Context, constraints Constraints) Size {
 
 func (t Toggle) Draw(ctx *Context, bounds Rect) {
 	active := t.Active
-	if ctx.Runtime != nil && t.ID != "" && t.OnClick == nil {
+	if ctx.Runtime != nil && t.ID != "" {
 		active = ctx.Runtime.ToggleValue(t.ID, t.Active)
 	}
 	trackFill := ctx.Theme.ButtonFill
@@ -141,14 +141,13 @@ func (t Toggle) Draw(ctx *Context, bounds Rect) {
 			}
 		}
 		if onClick != nil {
-			initial := active
 			ctx.Runtime.Register(Control{
 				ID:      t.ID,
 				Rect:    bounds,
 				Enabled: t.Enabled,
 				OnClick: func(PointerEvent) {
 					if t.ID != "" {
-						ctx.Runtime.SetToggleValue(t.ID, !ctx.Runtime.ToggleValue(t.ID, initial))
+						ctx.Runtime.SetToggleValue(t.ID, !ctx.Runtime.ToggleValue(t.ID, active))
 					}
 					onClick()
 				},
