@@ -87,17 +87,11 @@ func (a *App) drawLauncher(screen *ebiten.Image) {
 		return
 	}
 
-	a.launcherButtons = a.launcherButtons[:0]
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.launcherButtons = append(a.launcherButtons, btn)
-	}, launcherScreenElement{app: a})
+	a.drawUIRoot(screen, &a.launcherRuntime, func(chromeButton) {}, launcherScreenElement{app: a})
 }
 
 func (a *App) drawPasswordPrompt(screen *ebiten.Image) {
-	a.launcherButtons = a.launcherButtons[:0]
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.launcherButtons = append(a.launcherButtons, btn)
-	}, launcherPasswordScreenElement{app: a})
+	a.drawUIRoot(screen, &a.launcherRuntime, func(chromeButton) {}, launcherPasswordScreenElement{app: a})
 }
 
 type launcherScreenElement struct {
@@ -133,7 +127,9 @@ func (e launcherScreenElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 				ui.Fixed(ui.Row{
 					Children: []ui.Child{
 						ui.Flex(launcherInputElement(e), 1),
-						ui.Fixed(ui.Button{ID: "launcher_connect", Label: "Connect", Enabled: validInput}),
+						ui.Fixed(ui.Button{Label: "Connect", Enabled: validInput, OnClick: func() {
+							e.app.connectFromLauncher(e.app.launcherInput)
+						}}),
 					},
 					Spacing: 12,
 				}),
@@ -262,7 +258,19 @@ func (e launcherDevicePanelElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 		Insets: ui.SymmetricInsets(16, 12),
 		Child:  launcherDeviceRowElement{device: e.device},
 	}.Draw(ctx, bounds)
-	ctx.AddHit("discover:"+e.device.BaseURL, bounds, true)
+	if ctx.Runtime != nil {
+		baseURL := e.device.BaseURL
+		ctx.Runtime.Register(ui.Control{
+			ID:      "discover:" + baseURL,
+			Rect:    bounds,
+			Enabled: true,
+			OnClick: func(ui.PointerEvent) {
+				e.app.connectFromLauncher(baseURL)
+			},
+		})
+	} else {
+		ctx.AddHit("discover:"+e.device.BaseURL, bounds, true)
+	}
 }
 
 type launcherDeviceRowElement struct {
@@ -364,9 +372,19 @@ func (e launcherPasswordElement) children() []ui.Child {
 	}
 	children = append(children, ui.Fixed(ui.Row{
 		Children: []ui.Child{
-			ui.Fixed(ui.Button{ID: "launcher_back", Label: "Back", Enabled: true}),
+			ui.Fixed(ui.Button{Label: "Back", Enabled: true, OnClick: func() {
+				e.app.launcherMode = launcherModeBrowse
+				e.app.launcherPassword = ""
+				e.app.launcherError = ""
+				if e.app.cfg.BaseURL != "" && e.app.ctrl != nil {
+					e.app.ctrl.Stop()
+					e.app.ctrl = nil
+				}
+			}}),
 			ui.Flex(ui.Spacer{}, 1),
-			ui.Fixed(ui.Button{ID: "launcher_retry_password", Label: "Connect", Enabled: strings.TrimSpace(e.app.launcherPassword) != ""}),
+			ui.Fixed(ui.Button{Label: "Connect", Enabled: strings.TrimSpace(e.app.launcherPassword) != "", OnClick: func() {
+				e.app.connectFromLauncher(e.app.pendingTarget)
+			}}),
 		},
 		Spacing: 12,
 	}))

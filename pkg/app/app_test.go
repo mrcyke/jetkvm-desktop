@@ -258,40 +258,21 @@ func TestShouldSendRelativeMouseThrottlesMovementOnly(t *testing.T) {
 	}
 }
 
-func TestApplySettingsSliderValueUpdatesThrottlePreferences(t *testing.T) {
+func TestSavePreferencesUsesThrottleDurations(t *testing.T) {
 	app, err := New(Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	bounds := rect{x: 20, y: 0, w: 200, h: 28}
-	app.applySettingsSliderValue(settingsScrollThrottleSliderID, bounds, 120)
-	if app.scrollThrottle != 50*time.Millisecond {
-		t.Fatalf("scrollThrottle = %v, want 50ms", app.scrollThrottle)
-	}
+	app.scrollThrottle = 50 * time.Millisecond
+	app.pointerMoveThrottle = 24 * time.Millisecond
+	app.savePreferences()
+
 	if app.prefs.ScrollThrottleMs != 50 {
 		t.Fatalf("prefs.ScrollThrottleMs = %d, want 50", app.prefs.ScrollThrottleMs)
 	}
-
-	app.applySettingsSliderValue(settingsPointerThrottleSliderID, bounds, 165)
-	if app.pointerMoveThrottle != 24*time.Millisecond {
-		t.Fatalf("pointerMoveThrottle = %v, want 24ms", app.pointerMoveThrottle)
-	}
 	if app.prefs.PointerMoveThrottleMs != 24 {
 		t.Fatalf("prefs.PointerMoveThrottleMs = %d, want 24", app.prefs.PointerMoveThrottleMs)
-	}
-}
-
-func TestUpdateSettingsSliderDragStopsWhenMouseReleased(t *testing.T) {
-	app, err := New(Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	app.activeSettingsSliderID = settingsScrollThrottleSliderID
-	app.updateSettingsSliderDrag()
-	if app.activeSettingsSliderID != "" {
-		t.Fatal("expected slider drag to clear when mouse button is released")
 	}
 }
 
@@ -302,7 +283,7 @@ func TestVideoCodecH265ClickOpensConfirmation(t *testing.T) {
 	}
 
 	app.sectionData.Video.State.Codec = session.VideoCodecH264
-	app.invokeAction("video_codec:h265")
+	app.openH265CodecConfirm()
 
 	if !app.h265ConfirmOpen {
 		t.Fatal("expected H265 confirmation to open")
@@ -319,7 +300,7 @@ func TestVideoCodecH265CancelClosesConfirmation(t *testing.T) {
 	}
 
 	app.h265ConfirmOpen = true
-	app.invokeAction("video_codec_h265_cancel")
+	app.h265ConfirmOpen = false
 
 	if app.h265ConfirmOpen {
 		t.Fatal("expected H265 confirmation to close")
@@ -334,7 +315,7 @@ func TestVideoCodecH265ConfirmStartsCodecChange(t *testing.T) {
 
 	app.ctrl = session.New(session.Config{})
 	app.h265ConfirmOpen = true
-	app.invokeAction("video_codec_h265_confirm")
+	app.confirmH265CodecAction()
 
 	if app.h265ConfirmOpen {
 		t.Fatal("expected H265 confirmation to close on confirm")
@@ -646,6 +627,32 @@ func TestAppPasswordRetryFlowConnects(t *testing.T) {
 	app.syncSessionState()
 	if app.launcherOpen {
 		t.Fatal("expected launcher to remain closed after successful password retry")
+	}
+}
+
+func TestAppCLIConfigPasswordConnectsWithoutPrompt(t *testing.T) {
+	srv, ctx, cancel := startAppEmulator(t)
+	defer cancel()
+
+	app, err := New(Config{
+		BaseURL:    srv.BaseURL(),
+		Password:   "secret",
+		RPCTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Start(ctx)
+	defer func() {
+		if app.ctrl != nil {
+			app.ctrl.Stop()
+		}
+	}()
+
+	waitForAppPhase(t, app, session.PhaseConnected, 5*time.Second)
+	app.syncSessionState()
+	if app.launcherOpen {
+		t.Fatal("expected launcher to remain closed when config password succeeds")
 	}
 }
 

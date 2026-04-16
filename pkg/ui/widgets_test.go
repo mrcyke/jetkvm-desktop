@@ -1,6 +1,92 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
+)
+
+func TestButtonDrawRegistersCallbackWithoutID(t *testing.T) {
+	t.Parallel()
+
+	runtime := &Runtime{}
+	ctx := &Context{Screen: ebiten.NewImage(128, 128), Theme: DefaultTheme(), Runtime: runtime}
+	button := Button{
+		Label:   "Click",
+		Enabled: true,
+		OnClick: func() {},
+	}
+
+	runtime.BeginFrame()
+	button.Draw(ctx, Rect{X: 10, Y: 20, W: 80, H: 30})
+
+	if len(runtime.controls) != 1 {
+		t.Fatalf("registered controls = %d, want 1", len(runtime.controls))
+	}
+	if runtime.controls[0].OnClick == nil {
+		t.Fatal("expected callback-driven button to register an OnClick handler")
+	}
+}
+
+func TestToggleDrawRegistersCallbackWithoutID(t *testing.T) {
+	t.Parallel()
+
+	runtime := &Runtime{}
+	ctx := &Context{Screen: ebiten.NewImage(128, 128), Theme: DefaultTheme(), Runtime: runtime}
+	toggle := Toggle{
+		Enabled: true,
+		OnClick: func() {},
+	}
+
+	runtime.BeginFrame()
+	toggle.Draw(ctx, Rect{X: 10, Y: 20, W: 46, H: 24})
+
+	if len(runtime.controls) != 1 {
+		t.Fatalf("registered controls = %d, want 1", len(runtime.controls))
+	}
+	if runtime.controls[0].OnClick == nil {
+		t.Fatal("expected callback-driven toggle to register an OnClick handler")
+	}
+}
+
+func TestToggleWithoutCallbackUsesRuntimeState(t *testing.T) {
+	t.Parallel()
+
+	runtime := &Runtime{}
+	ctx := &Context{Screen: ebiten.NewImage(128, 128), Theme: DefaultTheme(), Runtime: runtime}
+	toggle := Toggle{ID: "toggle", Enabled: true}
+	bounds := Rect{X: 10, Y: 20, W: 46, H: 24}
+
+	runtime.BeginFrame()
+	toggle.Draw(ctx, bounds)
+	point := Point{X: 20, Y: 30}
+	runtime.HandlePointer(point, true, true, false)
+	runtime.HandlePointer(point, false, false, true)
+
+	if !runtime.ToggleValue("toggle", false) {
+		t.Fatal("expected runtime-managed toggle value to flip on click")
+	}
+}
+
+func TestSliderWithoutCallbacksUsesRuntimeState(t *testing.T) {
+	t.Parallel()
+
+	runtime := &Runtime{}
+	ctx := &Context{Screen: ebiten.NewImage(128, 128), Theme: DefaultTheme(), Runtime: runtime}
+	slider := Slider{ID: "slider", Min: 0, Max: 100, Step: 25, Enabled: true}
+	bounds := Rect{X: 20, Y: 0, W: 200, H: 28}
+
+	runtime.BeginFrame()
+	slider.Draw(ctx, bounds)
+	point := Point{X: 120, Y: 14}
+	runtime.HandlePointer(point, true, true, false)
+	runtime.HandlePointer(point, true, false, false)
+	runtime.HandlePointer(point, false, false, true)
+
+	if got := runtime.SliderValue("slider", -1); got != 50 {
+		t.Fatalf("runtime slider value = %v, want 50", got)
+	}
+}
 
 func TestSliderMeasure(t *testing.T) {
 	t.Parallel()

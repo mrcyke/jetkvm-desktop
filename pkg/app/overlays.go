@@ -183,7 +183,7 @@ func (a *App) drawStatsOverlay(screen *ebiten.Image) {
 			Series: statsSeries(a.statsHistory, func(p statsPoint) float64 { return p.FramesPerSecond }),
 		},
 	}
-	a.drawUIRoot(screen, func(chromeButton) {}, statsOverlayRootElement{
+	a.drawUIRoot(screen, nil, func(chromeButton) {}, statsOverlayRootElement{
 		app: a,
 		child: statsOverlayElement{
 			app:    a,
@@ -236,16 +236,13 @@ func humanFrameAge(at time.Time) string {
 
 func (a *App) drawPasteOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	if !a.pasteOpen {
-		a.pasteButtons = nil
+		a.pasteRuntime.BeginFrame()
 		return
 	}
 	bounds := screen.Bounds()
 	a.pastePanel = rect{}
-	a.pasteButtons = a.pasteButtons[:0]
 	_ = bounds
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.pasteButtons = append(a.pasteButtons, btn)
-	}, pasteOverlayRootElement{
+	a.drawUIRoot(screen, &a.pasteRuntime, func(chromeButton) {}, pasteOverlayRootElement{
 		app: a,
 		child: pasteOverlayElement{
 			app:  a,

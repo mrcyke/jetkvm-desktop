@@ -60,14 +60,9 @@ type App struct {
 	mediaOpen              bool
 	settingsSection        settingsSection
 	chromeButtons          []chromeButton
-	overlayButtons         []chromeButton
-	settingsButtons        []chromeButton
 	settingsPanel          rect
-	pasteButtons           []chromeButton
 	pastePanel             rect
-	mediaButtons           []chromeButton
 	mediaPanel             rect
-	launcherButtons        []chromeButton
 	prefs                  Preferences
 	systemTheme            Theme
 	systemThemeCheckedAt   time.Time
@@ -152,7 +147,12 @@ type App struct {
 	factoryResetMessage    string
 	factoryResetSuccess    bool
 	hardwareConn           hardwareConnectionState
-	activeSettingsSliderID string
+	launcherRuntime        ui.Runtime
+	overlayRuntime         ui.Runtime
+	settingsRuntime        ui.Runtime
+	pasteRuntime           ui.Runtime
+	mediaRuntime           ui.Runtime
+	chromeRuntime          ui.Runtime
 }
 
 type hardwareConnectionState struct {
@@ -433,10 +433,7 @@ func (a *App) Update() error {
 	if a.launcherOpen {
 		a.syncDiscovery()
 		a.syncLauncherInput()
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			a.handleClick()
-		}
-		a.updateSettingsSliderDrag()
+		a.syncUIPointer()
 		a.updateTextSelectionDrag()
 		return nil
 	}
@@ -457,10 +454,7 @@ func (a *App) Update() error {
 		}
 	}
 	a.focused = nowFocused
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		a.handleClick()
-	}
-	a.updateSettingsSliderDrag()
+	a.syncUIPointer()
 	a.updateTextSelectionDrag()
 
 	a.syncPasteInput()
@@ -471,21 +465,50 @@ func (a *App) Update() error {
 	return nil
 }
 
-func (a *App) updateSettingsSliderDrag() {
-	if a.activeSettingsSliderID == "" {
+func (a *App) syncUIPointer() {
+	x, y := ebiten.CursorPosition()
+	point := ui.Point{X: float64(x), Y: float64(y)}
+	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	justPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+	justReleased := inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft)
+	if !pressed && !justPressed && !justReleased {
 		return
 	}
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		a.savePreferences()
-		a.activeSettingsSliderID = ""
+	if a.launcherOpen {
+		a.launcherRuntime.HandlePointer(point, pressed, justPressed, justReleased)
 		return
 	}
-	sliderRect, ok := a.currentSettingsButtonRect(a.activeSettingsSliderID)
-	if !ok {
+	if a.mediaOpen {
+		if justPressed && !a.mediaPanel.contains(x, y) {
+			a.closeMediaOverlay()
+			return
+		}
+		if a.mediaRuntime.HandlePointer(point, pressed, justPressed, justReleased) {
+			return
+		}
+	}
+	if a.pasteOpen {
+		if justPressed && !a.pastePanel.contains(x, y) {
+			a.closePasteOverlay()
+			return
+		}
+		if a.pasteRuntime.HandlePointer(point, pressed, justPressed, justReleased) {
+			return
+		}
+	}
+	if a.settingsOpen {
+		if justPressed && !a.settingsPanel.contains(x, y) {
+			a.closeSettingsOverlay()
+			return
+		}
+		if a.settingsRuntime.HandlePointer(point, pressed, justPressed, justReleased) {
+			return
+		}
+	}
+	if a.overlayRuntime.HandlePointer(point, pressed, justPressed, justReleased) {
 		return
 	}
-	x, _ := ebiten.CursorPosition()
-	a.applySettingsSliderValue(a.activeSettingsSliderID, sliderRect, float64(x))
+	a.chromeRuntime.HandlePointer(point, pressed, justPressed, justReleased)
 }
 
 func (a *App) syncVideoFrame() {
@@ -1265,38 +1288,6 @@ func (a *App) savePreferences() {
 	_ = savePreferences(a.prefs)
 }
 
-func isSettingsSliderAction(id string) bool {
-	switch id {
-	case settingsScrollThrottleSliderID, settingsPointerThrottleSliderID:
-		return true
-	default:
-		return false
-	}
-}
-
-func (a *App) currentSettingsButtonRect(id string) (rect, bool) {
-	for _, btn := range a.settingsButtons {
-		if btn.id == id {
-			return btn.rect, true
-		}
-	}
-	return rect{}, false
-}
-
-func (a *App) applySettingsSliderValue(id string, bounds rect, x float64) {
-	sliderBounds := ui.Rect{X: bounds.x, Y: bounds.y, W: bounds.w, H: bounds.h}
-	switch id {
-	case settingsScrollThrottleSliderID:
-		value := ui.SliderValueAt(sliderBounds, x, 0, maxScrollThrottleMs, 5)
-		a.scrollThrottle = throttleDurationFromMs(int(value))
-		a.prefs.ScrollThrottleMs = int(a.scrollThrottle / time.Millisecond)
-	case settingsPointerThrottleSliderID:
-		value := ui.SliderValueAt(sliderBounds, x, 0, maxPointerMoveThrottleMs, 1)
-		a.pointerMoveThrottle = throttleDurationFromMs(int(value))
-		a.prefs.PointerMoveThrottleMs = int(a.pointerMoveThrottle / time.Millisecond)
-	}
-}
-
 func (a *App) syncMQTTEditorLocked(settings session.MQTTSettings) {
 	if a.mqttEditorDirty {
 		return
@@ -2000,125 +1991,8 @@ func (a *App) syncSettingsInput() {
 	}
 }
 
-func (a *App) handleClick() {
-	x, y := ebiten.CursorPosition()
-	if a.launcherOpen {
-		for _, btn := range a.launcherButtons {
-			if !btn.enabled || !btn.rect.contains(x, y) {
-				continue
-			}
-			a.invokeAction(btn.id)
-			if isTextFieldAction(btn.id) {
-				a.beginTextFieldPointer(btn.id, btn.rect, shiftPressed())
-			}
-			return
-		}
-		return
-	}
-	for _, btn := range a.overlayButtons {
-		if !btn.enabled || !btn.rect.contains(x, y) {
-			continue
-		}
-		a.invokeAction(btn.id)
-		return
-	}
-	for _, btn := range a.mediaButtons {
-		if !btn.enabled || !btn.rect.contains(x, y) {
-			continue
-		}
-		a.invokeAction(btn.id)
-		if isTextFieldAction(btn.id) {
-			a.beginTextFieldPointer(btn.id, btn.rect, shiftPressed())
-		}
-		return
-	}
-	if a.mediaOpen && !a.mediaPanel.contains(x, y) {
-		a.closeMediaOverlay()
-		return
-	}
-	for _, btn := range a.pasteButtons {
-		if !btn.enabled || !btn.rect.contains(x, y) {
-			continue
-		}
-		a.invokeAction(btn.id)
-		return
-	}
-	if a.pasteOpen && !a.pastePanel.contains(x, y) {
-		a.closePasteOverlay()
-		return
-	}
-	for _, btn := range a.settingsButtons {
-		if !btn.enabled || !btn.rect.contains(x, y) {
-			continue
-		}
-		if isSettingsSliderAction(btn.id) {
-			a.activeSettingsSliderID = btn.id
-			a.applySettingsSliderValue(btn.id, btn.rect, float64(x))
-			return
-		}
-		a.invokeAction(btn.id)
-		if isTextFieldAction(btn.id) {
-			a.beginTextFieldPointer(btn.id, btn.rect, shiftPressed())
-		}
-		return
-	}
-	if a.settingsOpen && !a.settingsPanel.contains(x, y) {
-		a.closeSettingsOverlay()
-		return
-	}
-	for _, btn := range a.chromeButtons {
-		if !btn.enabled || !btn.rect.contains(x, y) {
-			continue
-		}
-		a.invokeAction(btn.id)
-		return
-	}
-}
-
 func (a *App) invokeAction(id string) {
 	switch id {
-	case "launcher_connect":
-		a.connectFromLauncher(a.launcherInput)
-	case "launcher_retry_password":
-		a.connectFromLauncher(a.pendingTarget)
-	case "launcher_back":
-		a.launcherMode = launcherModeBrowse
-		a.launcherPassword = ""
-		a.launcherError = ""
-		if a.cfg.BaseURL != "" && a.ctrl != nil {
-			a.ctrl.Stop()
-			a.ctrl = nil
-		}
-	case "reconnect":
-		if a.ctrl == nil {
-			return
-		}
-		a.releaseAllKeys(true)
-		a.ctrl.ReconnectNow()
-	case "take_back_control":
-		a.releaseAllKeys(true)
-		a.ctrl.ReconnectNow()
-		a.revealUIFor(2 * time.Second)
-	case "mouse":
-		a.setMouseRelative(!a.relative)
-	case "paste":
-		if a.pasteOpen {
-			a.closePasteOverlay()
-		} else {
-			a.pasteOpen = true
-			a.loadClipboardText()
-			a.settingsOpen = false
-			a.mediaOpen = false
-			a.applyCursorMode()
-		}
-	case "media":
-		if a.mediaOpen {
-			a.closeMediaOverlay()
-		} else {
-			a.openMediaOverlay()
-		}
-	case "stats":
-		a.statsOpen = !a.statsOpen
 	case "paste_load_clipboard":
 		a.loadClipboardText()
 	case "paste_send":
@@ -2128,56 +2002,6 @@ func (a *App) invokeAction(id string) {
 			_ = a.ctrl.CancelPaste()
 		})
 		a.closePasteOverlay()
-	case "mouse_absolute":
-		a.setMouseRelative(false)
-	case "mouse_relative":
-		a.setMouseRelative(true)
-	case "quality_preset_high":
-		if a.settingsActionPending(settingsGroupVideoQuality) {
-			return
-		}
-		a.withSettingsAction(settingsGroupVideoQuality, "high", func() error {
-			return a.ctrl.SetQuality(1.0)
-		})
-	case "quality_preset_medium":
-		if a.settingsActionPending(settingsGroupVideoQuality) {
-			return
-		}
-		a.withSettingsAction(settingsGroupVideoQuality, "medium", func() error {
-			return a.ctrl.SetQuality(0.5)
-		})
-	case "quality_preset_low":
-		if a.settingsActionPending(settingsGroupVideoQuality) {
-			return
-		}
-		a.withSettingsAction(settingsGroupVideoQuality, "low", func() error {
-			return a.ctrl.SetQuality(0.1)
-		})
-	case "check_updates":
-		if a.settingsActionPending(settingsGroupUpdateStatus) {
-			return
-		}
-		a.withSettingsAction(settingsGroupUpdateStatus, "refresh", func() error {
-			a.updateActionMessage = ""
-			return a.refreshSettingsSectionSync(sectionGeneral)
-		})
-	case "install_updates":
-		a.invokeInstallUpdates()
-	case "reboot":
-		a.runAsync(func() {
-			_ = a.ctrl.Reboot()
-		})
-	case "settings":
-		if a.settingsOpen {
-			a.closeSettingsOverlay()
-		} else {
-			a.settingsOpen = true
-			a.pasteOpen = false
-			a.mediaOpen = false
-			a.refreshSettingsSection(a.settingsSection)
-			a.applyCursorMode()
-		}
-		a.revealUIFor(1200 * time.Millisecond)
 	case "settings_close":
 		a.closeSettingsOverlay()
 	case "media_close":
@@ -2188,70 +2012,6 @@ func (a *App) invokeAction(id string) {
 		}
 	}
 	switch id {
-	case "mouse_hide_cursor_toggle":
-		a.hideCursor = !a.hideCursor
-		a.applyCursorMode()
-		a.savePreferences()
-	case "scroll_invert":
-		a.invertScroll = !a.invertScroll
-		a.savePreferences()
-	case "absolute_side_buttons_via_relative_toggle":
-		a.prefs.AbsoluteSideButtonsViaRel = !a.prefs.AbsoluteSideButtonsViaRel
-		a.savePreferences()
-	case "toggle_pressed_keys":
-		a.showPressedKeys = !a.showPressedKeys
-		a.savePreferences()
-	case "pin_chrome_toggle":
-		a.prefs.PinChrome = !a.prefs.PinChrome
-		a.savePreferences()
-	case "hide_header_bar_toggle":
-		a.prefs.HideHeaderBar = !a.prefs.HideHeaderBar
-		a.savePreferences()
-	case "hide_status_bar_toggle":
-		a.prefs.HideStatusBar = !a.prefs.HideStatusBar
-		a.savePreferences()
-	case "theme:system":
-		a.prefs.Theme = themeSystem
-		a.refreshSystemTheme()
-		a.savePreferences()
-	case "theme:dark":
-		a.prefs.Theme = themeDark
-		a.savePreferences()
-	case "theme:light":
-		a.prefs.Theme = themeLight
-		a.savePreferences()
-	case "chrome_anchor:top_left":
-		a.prefs.ChromeAnchor = chromeAnchorTopLeft
-		a.savePreferences()
-	case "chrome_anchor:top_center":
-		a.prefs.ChromeAnchor = chromeAnchorTopCenter
-		a.savePreferences()
-	case "chrome_anchor:top_right":
-		a.prefs.ChromeAnchor = chromeAnchorTopRight
-		a.savePreferences()
-	case "chrome_anchor:left_center":
-		a.prefs.ChromeAnchor = chromeAnchorLeftCenter
-		a.savePreferences()
-	case "chrome_anchor:right_center":
-		a.prefs.ChromeAnchor = chromeAnchorRightCenter
-		a.savePreferences()
-	case "chrome_anchor:bottom_left":
-		a.prefs.ChromeAnchor = chromeAnchorBottomLeft
-		a.savePreferences()
-	case "chrome_anchor:bottom_center":
-		a.prefs.ChromeAnchor = chromeAnchorBottomCenter
-		a.savePreferences()
-	case "chrome_anchor:bottom_right":
-		a.prefs.ChromeAnchor = chromeAnchorBottomRight
-		a.savePreferences()
-	case "chrome_layout:horizontal":
-		a.prefs.ChromeLayout = chromeLayoutHorizontal
-		a.savePreferences()
-	case "chrome_layout:vertical":
-		a.prefs.ChromeLayout = chromeLayoutVertical
-		a.savePreferences()
-	case "fullscreen":
-		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	case "tls_disabled":
 		if a.settingsActionPending(settingsGroupTLSMode) {
 			return
@@ -2309,18 +2069,6 @@ func (a *App) invokeAction(id string) {
 		a.invokeCustomTLS()
 	case "tls_custom_save":
 		a.invokeCustomTLS()
-	case "video_codec:auto":
-		a.h265ConfirmOpen = false
-		a.invokeVideoCodecAction("auto", session.VideoCodecAuto)
-	case "video_codec:h265":
-		a.openH265CodecConfirm()
-	case "video_codec_h265_confirm":
-		a.confirmH265CodecAction()
-	case "video_codec_h265_cancel":
-		a.h265ConfirmOpen = false
-	case "video_codec:h264":
-		a.h265ConfirmOpen = false
-		a.invokeVideoCodecAction("h264", session.VideoCodecH264)
 	case "video_edid:jetkvm_default":
 		a.invokeEDIDAction("jetkvm_default", videoEDIDPresetJetKVMDefault)
 	case "video_edid:acer_b246wl":
@@ -2585,27 +2333,6 @@ func (a *App) invokeAction(id string) {
 		}
 		a.withSettingsAction(settingsGroupAutoUpdate, "off", func() error {
 			if err := a.ctrl.SetAutoUpdateState(false); err != nil {
-				return err
-			}
-			return a.refreshSettingsSectionSync(sectionGeneral)
-		})
-	case "auto_update_toggle":
-		if a.settingsActionPending(settingsGroupAutoUpdate) {
-			return
-		}
-		a.mu.RLock()
-		autoUpdate := a.sectionData.General.AutoUpdate
-		a.mu.RUnlock()
-		if autoUpdate == nil {
-			return
-		}
-		next := !*autoUpdate
-		choice := "off"
-		if next {
-			choice = "on"
-		}
-		a.withSettingsAction(settingsGroupAutoUpdate, choice, func() error {
-			if err := a.ctrl.SetAutoUpdateState(next); err != nil {
 				return err
 			}
 			return a.refreshSettingsSectionSync(sectionGeneral)
@@ -3638,7 +3365,6 @@ func (a *App) closeSettingsOverlay() {
 		return
 	}
 	a.settingsOpen = false
-	a.activeSettingsSliderID = ""
 	a.h265ConfirmOpen = false
 	a.settingsInputFocus = settingsInputNone
 	a.closeJigglerEditor()
@@ -3673,7 +3399,7 @@ func (a *App) releasePointerState() {
 }
 
 func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo bool) {
-	a.overlayButtons = nil
+	a.overlayRuntime.BeginFrame()
 	title := ""
 	detail := ""
 	switch snap.Phase {
@@ -3710,14 +3436,17 @@ func (a *App) drawOverlay(screen *ebiten.Image, snap session.Snapshot, hasVideo 
 	if detail == "" && snap.LastError != "" && snap.Phase != session.PhaseConnected {
 		detail = snap.LastError
 	}
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.overlayButtons = append(a.overlayButtons, btn)
-	}, overlayBannerRootElement{
+	a.drawUIRoot(screen, &a.overlayRuntime, func(chromeButton) {}, overlayBannerRootElement{
 		title:      title,
 		detail:     detail,
 		takeover:   snap.Phase == session.PhaseOtherSession,
 		withButton: snap.Phase == session.PhaseOtherSession,
 		width:      float64(screen.Bounds().Dx() - 52),
+		onClick: func() {
+			a.releaseAllKeys(true)
+			a.ctrl.ReconnectNow()
+			a.revealUIFor(2 * time.Second)
+		},
 	})
 }
 
@@ -3739,7 +3468,7 @@ func (a *App) drawPressedKeysOverlay(screen *ebiten.Image) {
 	w, _ := ui.MeasureText(line, 12)
 	x := 14.0
 	y := float64(screen.Bounds().Dy()) - 58
-	a.drawUIRoot(screen, func(chromeButton) {}, pressedKeysOverlayElement{
+	a.drawUIRoot(screen, nil, func(chromeButton) {}, pressedKeysOverlayElement{
 		text: line,
 		x:    x,
 		y:    y,
@@ -3752,6 +3481,7 @@ type overlayBannerElement struct {
 	detail     string
 	takeover   bool
 	withButton bool
+	onClick    func()
 }
 
 func (e overlayBannerElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
@@ -3771,7 +3501,7 @@ func (e overlayBannerElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	if e.withButton {
 		children = append(children,
 			ui.Fixed(ui.Spacer{H: 12}),
-			ui.Fixed(ui.Button{ID: "take_back_control", Label: "Take Back Control", Enabled: true, Active: true}),
+			ui.Fixed(ui.Button{Label: "Take Back Control", Enabled: true, Active: true, OnClick: e.onClick}),
 		)
 	}
 	ui.Column{Children: children}.Draw(ctx, bounds)
@@ -3783,6 +3513,7 @@ type overlayBannerRootElement struct {
 	takeover   bool
 	withButton bool
 	width      float64
+	onClick    func()
 }
 
 func (overlayBannerRootElement) Measure(_ *ui.Context, constraints ui.Constraints) ui.Size {
@@ -3804,6 +3535,7 @@ func (e overlayBannerRootElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 				detail:     e.detail,
 				takeover:   e.takeover,
 				withButton: e.withButton,
+				onClick:    e.onClick,
 			},
 		},
 	}.Draw(ctx, bounds)
@@ -3986,6 +3718,13 @@ func authPromptError(lastError string) string {
 	return lastError
 }
 
+func (a *App) effectivePassword() string {
+	if a.launcherPassword != "" {
+		return a.launcherPassword
+	}
+	return a.cfg.Password
+}
+
 func (a *App) connectTo(target string) {
 	baseURL, err := normalizeBaseURL(target)
 	if err != nil {
@@ -3997,8 +3736,9 @@ func (a *App) connectTo(target string) {
 	if a.ctrl != nil {
 		a.ctrl.Stop()
 	}
+	password := a.effectivePassword()
 	a.cfg.BaseURL = baseURL
-	a.cfg.Password = a.launcherPassword
+	a.cfg.Password = password
 	a.lastImg = nil
 	a.lastFrameAt = time.Time{}
 	a.lastPhase = session.PhaseIdle
@@ -4007,7 +3747,7 @@ func (a *App) connectTo(target string) {
 	a.statsHistory = nil
 	a.ctrl = session.New(session.Config{
 		BaseURL:    baseURL,
-		Password:   a.launcherPassword,
+		Password:   password,
 		RPCTimeout: a.cfg.RPCTimeout,
 		Reconnect:  true,
 	})

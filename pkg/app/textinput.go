@@ -188,29 +188,23 @@ func (a *App) syncTextInputBinding() *textBinding {
 }
 
 func (a *App) decorateTextField(field ui.TextField) ui.TextField {
-	return a.textInput.Bind(field, a.uiTextBinding())
+	field = a.textInput.Bind(field, a.uiTextBinding())
+	field.OnPointerDown = func(bounds ui.Rect) {
+		a.beginTextFieldPointer(field.ID, bounds, shiftPressed())
+	}
+	return field
 }
 
 func (a *App) currentTextFieldRect(id string) (ui.Rect, bool) {
-	for _, btn := range a.launcherButtons {
-		if btn.id == id {
-			return ui.Rect{X: btn.rect.x, Y: btn.rect.y, W: btn.rect.w, H: btn.rect.h}, true
-		}
-	}
-	for _, btn := range a.mediaButtons {
-		if btn.id == id {
-			return ui.Rect{X: btn.rect.x, Y: btn.rect.y, W: btn.rect.w, H: btn.rect.h}, true
-		}
-	}
-	for _, btn := range a.settingsButtons {
-		if btn.id == id {
-			return ui.Rect{X: btn.rect.x, Y: btn.rect.y, W: btn.rect.w, H: btn.rect.h}, true
+	for _, runtime := range []*ui.Runtime{&a.launcherRuntime, &a.mediaRuntime, &a.settingsRuntime, &a.pasteRuntime} {
+		if bounds, ok := runtime.Bounds(id); ok {
+			return bounds, true
 		}
 	}
 	return ui.Rect{}, false
 }
 
-func (a *App) beginTextFieldPointer(id string, fieldRect rect, shift bool) {
+func (a *App) beginTextFieldPointer(id string, fieldRect ui.Rect, shift bool) {
 	binding := a.pointerTextBinding(id)
 	if binding == nil || binding.ID != id {
 		return
@@ -222,7 +216,7 @@ func (a *App) beginTextFieldPointer(id string, fieldRect rect, shift bool) {
 		TextSize:     binding.TextSize,
 	})
 	x, _ := ebiten.CursorPosition()
-	a.textInput.BeginPointer(*a.uiTextBinding(), ui.Rect{X: fieldRect.x, Y: fieldRect.y, W: fieldRect.w, H: fieldRect.h}, float64(x), shift)
+	a.textInput.BeginPointer(*a.uiTextBinding(), fieldRect, float64(x), shift)
 }
 
 func (a *App) updateTextSelectionDrag() {

@@ -73,6 +73,7 @@ type Button struct {
 	Pending bool
 	MinW    float64
 	Width   float64
+	OnClick func()
 }
 
 type Toggle struct {
@@ -80,16 +81,19 @@ type Toggle struct {
 	Enabled bool
 	Active  bool
 	Pending bool
+	OnClick func()
 }
 
 type Slider struct {
-	ID      string
-	Value   float64
-	Min     float64
-	Max     float64
-	Step    float64
-	Enabled bool
-	MinW    float64
+	ID       string
+	Value    float64
+	Min      float64
+	Max      float64
+	Step     float64
+	Enabled  bool
+	MinW     float64
+	OnChange func(float64)
+	OnCommit func(float64)
 }
 
 func (t Toggle) Measure(_ *Context, constraints Constraints) Size {
@@ -97,11 +101,15 @@ func (t Toggle) Measure(_ *Context, constraints Constraints) Size {
 }
 
 func (t Toggle) Draw(ctx *Context, bounds Rect) {
+	active := t.Active
+	if ctx.Runtime != nil && t.ID != "" && t.OnClick == nil {
+		active = ctx.Runtime.ToggleValue(t.ID, t.Active)
+	}
 	trackFill := ctx.Theme.ButtonFill
 	trackStroke := ctx.Theme.ButtonStroke
 	knobFill := ctx.Theme.ButtonText
 	knobStroke := ctx.Theme.ButtonStroke
-	if t.Active {
+	if active {
 		trackFill = ctx.Theme.ActiveFill
 		trackStroke = ctx.Theme.ActiveStroke
 	}
@@ -120,12 +128,46 @@ func (t Toggle) Draw(ctx *Context, bounds Rect) {
 	ctx.FillStrokedRoundedRect(bounds, 1, bounds.H/2, trackStroke, trackFill)
 	knobRadius := (bounds.H - 6) / 2
 	knobCx := bounds.X + 3 + knobRadius
-	if t.Active {
+	if active {
 		knobCx = bounds.Right() - 3 - knobRadius
 	}
 	ctx.FillCircle(Point{X: knobCx, Y: cy}, knobRadius, knobFill)
 	ctx.StrokeLine(Point{X: knobCx, Y: cy}, Point{X: knobCx, Y: cy}, knobRadius*2, knobStroke)
-	ctx.AddHit(t.ID, bounds, t.Enabled)
+	if ctx.Runtime != nil && (t.ID != "" || t.OnClick != nil) {
+		onClick := t.OnClick
+		if onClick == nil && ctx.OnAction != nil {
+			onClick = func() {
+				ctx.OnAction(t.ID)
+			}
+		}
+		if onClick != nil {
+			initial := active
+			ctx.Runtime.Register(Control{
+				ID:      t.ID,
+				Rect:    bounds,
+				Enabled: t.Enabled,
+				OnClick: func(PointerEvent) {
+					if t.ID != "" {
+						ctx.Runtime.SetToggleValue(t.ID, !ctx.Runtime.ToggleValue(t.ID, initial))
+					}
+					onClick()
+				},
+			})
+		} else {
+			ctx.Runtime.Register(Control{
+				ID:      t.ID,
+				Rect:    bounds,
+				Enabled: t.Enabled,
+				OnClick: func(PointerEvent) {
+					if t.ID != "" {
+						ctx.Runtime.SetToggleValue(t.ID, !ctx.Runtime.ToggleValue(t.ID, active))
+					}
+				},
+			})
+		}
+	} else {
+		ctx.AddHit(t.ID, bounds, t.Enabled)
+	}
 }
 
 func (s Slider) Measure(_ *Context, constraints Constraints) Size {
@@ -147,6 +189,9 @@ func (s Slider) Draw(ctx *Context, bounds Rect) {
 
 	minValue, maxValue := s.rangeValues()
 	value := SliderClampValue(s.Value, minValue, maxValue)
+	if ctx.Runtime != nil && s.ID != "" && s.OnChange == nil && s.OnCommit == nil {
+		value = SliderClampValue(ctx.Runtime.SliderValue(s.ID, value), minValue, maxValue)
+	}
 	trackH := 6.0
 	trackY := bounds.Y + (bounds.H-trackH)/2
 	track := Rect{X: bounds.X + 10, Y: trackY, W: max(0, bounds.W-20), H: trackH}
@@ -163,7 +208,49 @@ func (s Slider) Draw(ctx *Context, bounds Rect) {
 	knobCy := bounds.Y + bounds.H/2
 	ctx.FillCircle(Point{X: knobCx, Y: knobCy}, knobRadius, knobFill)
 	ctx.StrokeLine(Point{X: knobCx, Y: knobCy}, Point{X: knobCx, Y: knobCy}, knobRadius*2, knobStroke)
-	ctx.AddHit(s.ID, bounds, s.Enabled)
+	if ctx.Runtime != nil && s.ID != "" {
+		change := s.OnChange
+		commit := s.OnCommit
+		if change != nil || commit != nil {
+			ctx.Runtime.Register(Control{
+				ID:      s.ID,
+				Rect:    bounds,
+				Enabled: s.Enabled,
+				OnPress: func(event PointerEvent) {
+					if change != nil {
+						change(SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+					}
+				},
+				OnDrag: func(event PointerEvent) {
+					if change != nil {
+						change(SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+					}
+				},
+				OnRelease: func(event PointerEvent) {
+					if commit != nil {
+						commit(SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+					}
+				},
+			})
+		} else {
+			ctx.Runtime.Register(Control{
+				ID:      s.ID,
+				Rect:    bounds,
+				Enabled: s.Enabled,
+				OnPress: func(event PointerEvent) {
+					ctx.Runtime.SetSliderValue(s.ID, SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+				},
+				OnDrag: func(event PointerEvent) {
+					ctx.Runtime.SetSliderValue(s.ID, SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+				},
+				OnRelease: func(event PointerEvent) {
+					ctx.Runtime.SetSliderValue(s.ID, SliderValueAt(bounds, event.Point.X, minValue, maxValue, s.Step))
+				},
+			})
+		}
+	} else {
+		ctx.AddHit(s.ID, bounds, s.Enabled)
+	}
 }
 
 func (b Button) Measure(ctx *Context, constraints Constraints) Size {
@@ -253,7 +340,31 @@ func (b Button) Draw(ctx *Context, bounds Rect) {
 	}
 	ctx.FillRect(bounds, fill)
 	ctx.StrokeRect(bounds, 1, stroke)
-	ctx.AddHit(b.ID, bounds, b.Enabled)
+	if ctx.Runtime != nil && (b.ID != "" || b.OnClick != nil) {
+		onClick := b.OnClick
+		if onClick == nil && ctx.OnAction != nil {
+			onClick = func() {
+				ctx.OnAction(b.ID)
+			}
+		}
+		if onClick != nil {
+			ctx.Runtime.Register(Control{
+				ID:      b.ID,
+				Rect:    bounds,
+				Enabled: b.Enabled,
+				OnClick: func(PointerEvent) { onClick() },
+			})
+		} else {
+			ctx.Runtime.Register(Control{
+				ID:      b.ID,
+				Rect:    bounds,
+				Enabled: b.Enabled,
+				OnClick: func(PointerEvent) {},
+			})
+		}
+	} else {
+		ctx.AddHit(b.ID, bounds, b.Enabled)
+	}
 	if ctx.DrawText == nil || b.Label == "" {
 		return
 	}
@@ -298,6 +409,7 @@ type TextField struct {
 	TextColor        color.Color
 	PlaceholderColor color.Color
 	CaretColor       color.Color
+	OnPointerDown    func(Rect)
 }
 
 func (t TextField) Measure(_ *Context, constraints Constraints) Size {
@@ -326,7 +438,17 @@ func (t TextField) Draw(ctx *Context, bounds Rect) {
 	}
 	ctx.FillRect(bounds, fill)
 	ctx.StrokeRect(bounds, 1, stroke)
-	ctx.AddHit(t.ID, bounds, t.Enabled)
+	if ctx.Runtime != nil && t.ID != "" && t.OnPointerDown != nil {
+		handler := t.OnPointerDown
+		ctx.Runtime.Register(Control{
+			ID:      t.ID,
+			Rect:    bounds,
+			Enabled: t.Enabled,
+			OnPress: func(PointerEvent) { handler(bounds) },
+		})
+	} else {
+		ctx.AddHit(t.ID, bounds, t.Enabled)
+	}
 	if ctx.DrawText == nil {
 		return
 	}
@@ -460,6 +582,11 @@ type ProgressBar struct {
 	Progress float64
 }
 
+type Spinner struct {
+	Size  float64
+	Color color.Color
+}
+
 func (p ProgressBar) Measure(_ *Context, constraints Constraints) Size {
 	width := constraints.MaxW
 	if width <= 0 {
@@ -473,6 +600,49 @@ func (p ProgressBar) Draw(ctx *Context, bounds Rect) {
 	ctx.FillRect(bounds, ctx.Theme.ProgressTrack)
 	ctx.FillRect(Rect{X: bounds.X, Y: bounds.Y, W: bounds.W * progress, H: bounds.H}, ctx.Theme.ProgressFill)
 	ctx.StrokeRect(bounds, 1, ctx.Theme.PanelStroke)
+}
+
+func (s Spinner) Measure(_ *Context, constraints Constraints) Size {
+	size := s.Size
+	if size <= 0 {
+		size = 14
+	}
+	return constraints.Clamp(Size{W: size, H: size})
+}
+
+func (s Spinner) Draw(ctx *Context, bounds Rect) {
+	size := min(bounds.W, bounds.H)
+	if size <= 0 {
+		return
+	}
+	clr := s.Color
+	if clr == nil {
+		clr = ctx.Theme.AccentText
+	}
+	r, g, b, a := clr.RGBA()
+	base := color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8(a >> 8)}
+	center := Point{X: bounds.X + bounds.W/2, Y: bounds.Y + bounds.H/2}
+	radius := max(0, size/2-2)
+	dotRadius := max(1.5, size/10)
+	step := 2 * math.Pi / 8
+	frame := 0
+	if !ctx.Now.IsZero() {
+		frame = int(ctx.Now.UnixMilli()/90) % 8
+	}
+	for i := 0; i < 8; i++ {
+		alphaScale := float64((i+8-frame)%8+1) / 8
+		angle := float64(i)*step - math.Pi/2
+		dot := Point{
+			X: center.X + math.Cos(angle)*radius,
+			Y: center.Y + math.Sin(angle)*radius,
+		}
+		ctx.FillCircle(dot, dotRadius, color.RGBA{
+			R: base.R,
+			G: base.G,
+			B: base.B,
+			A: uint8(float64(base.A) * alphaScale),
+		})
+	}
 }
 
 type ModalFrame struct {

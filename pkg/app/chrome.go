@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ type chromeButton struct {
 	enabled bool
 	active  bool
 	rect    rect
+	onClick func()
 }
 
 type settingsSection uint8
@@ -351,16 +353,49 @@ func (a *App) revealUIFor(d time.Duration) {
 func (a *App) layoutChromeButtons(width, height int, snap session.Snapshot) []chromeButton {
 	defs := make([]chromeButton, 0, 5)
 	if snap.Phase != session.PhaseConnected {
-		defs = append(defs, chromeButton{id: "reconnect", hint: reconnectLabel(snap.Phase), icon: iconReconnect, enabled: true})
+		defs = append(defs, chromeButton{id: "reconnect", hint: reconnectLabel(snap.Phase), icon: iconReconnect, enabled: true, onClick: func() {
+			if a.ctrl == nil {
+				return
+			}
+			a.releaseAllKeys(true)
+			a.ctrl.ReconnectNow()
+		}})
 	}
 	if snap.Phase == session.PhaseConnected {
-		defs = append(defs, chromeButton{id: "paste", hint: "Paste text", icon: iconPaste, enabled: true, active: a.pasteOpen})
-		defs = append(defs, chromeButton{id: "media", hint: "Virtual media", icon: iconMedia, enabled: true, active: a.mediaOpen})
+		defs = append(defs, chromeButton{id: "paste", hint: "Paste text", icon: iconPaste, enabled: true, active: a.pasteOpen, onClick: func() {
+			if a.pasteOpen {
+				a.closePasteOverlay()
+			} else {
+				a.pasteOpen = true
+				a.loadClipboardText()
+				a.settingsOpen = false
+				a.mediaOpen = false
+				a.applyCursorMode()
+			}
+		}})
+		defs = append(defs, chromeButton{id: "media", hint: "Virtual media", icon: iconMedia, enabled: true, active: a.mediaOpen, onClick: func() {
+			if a.mediaOpen {
+				a.closeMediaOverlay()
+			} else {
+				a.openMediaOverlay()
+			}
+		}})
 	}
 	defs = append(defs,
-		chromeButton{id: "stats", hint: "Connection stats", icon: iconStats, enabled: true, active: a.statsOpen},
-		chromeButton{id: "fullscreen", hint: "Toggle fullscreen", icon: iconFullscreen, enabled: true, active: ebiten.IsFullscreen()},
-		chromeButton{id: "settings", hint: "Settings", icon: iconSettings, enabled: true, active: a.settingsOpen},
+		chromeButton{id: "stats", hint: "Connection stats", icon: iconStats, enabled: true, active: a.statsOpen, onClick: func() { a.statsOpen = !a.statsOpen }},
+		chromeButton{id: "fullscreen", hint: "Toggle fullscreen", icon: iconFullscreen, enabled: true, active: ebiten.IsFullscreen(), onClick: func() { ebiten.SetFullscreen(!ebiten.IsFullscreen()) }},
+		chromeButton{id: "settings", hint: "Settings", icon: iconSettings, enabled: true, active: a.settingsOpen, onClick: func() {
+			if a.settingsOpen {
+				a.closeSettingsOverlay()
+			} else {
+				a.settingsOpen = true
+				a.pasteOpen = false
+				a.mediaOpen = false
+				a.refreshSettingsSection(a.settingsSection)
+				a.applyCursorMode()
+			}
+			a.revealUIFor(1200 * time.Millisecond)
+		}},
 	)
 
 	const size = 34.0
@@ -453,7 +488,7 @@ func (a *App) drawTopBar(screen *ebiten.Image, snap session.Snapshot) {
 	}
 	buttons := a.layoutChromeButtons(screen.Bounds().Dx(), screen.Bounds().Dy(), snap)
 	a.chromeButtons = buttons
-	a.drawUIRoot(screen, func(chromeButton) {}, chromeButtonsElement{
+	a.drawUIRoot(screen, &a.chromeRuntime, func(chromeButton) {}, chromeButtonsElement{
 		buttons: buttons,
 		alpha:   alpha,
 	})
@@ -477,7 +512,7 @@ func (a *App) drawHint(screen *ebiten.Image) {
 			}
 			bw := w + 20
 			by := btn.rect.y + btn.rect.h + 8
-			a.drawUIRoot(screen, func(chromeButton) {}, chromeTooltipElement{
+			a.drawUIRoot(screen, nil, func(chromeButton) {}, chromeTooltipElement{
 				text:  btn.hint,
 				alpha: alpha,
 				x:     bx,
@@ -506,7 +541,7 @@ func (a *App) drawStatusFooter(screen *ebiten.Image, snap session.Snapshot) {
 		right = trimForFooter(snap.LastError)
 		rightColor = rgba(228, 142, 142, 255, max(alpha, 0.75))
 	}
-	a.drawUIRoot(screen, func(chromeButton) {}, footerStatusElement{
+	a.drawUIRoot(screen, nil, func(chromeButton) {}, footerStatusElement{
 		left:       left,
 		right:      right,
 		leftColor:  clr,
@@ -535,7 +570,7 @@ func max(a, b float64) float64 {
 
 func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	if !a.settingsOpen {
-		a.settingsButtons = nil
+		a.settingsRuntime.BeginFrame()
 		return
 	}
 
@@ -554,10 +589,7 @@ func (a *App) drawSettingsOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	innerRect := outerRect.Inset(ui.UniformInsets(1))
 
 	a.settingsPanel = rect{x: panelX, y: panelY, w: panelW, h: panelH}
-	a.settingsButtons = a.settingsButtons[:0]
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.settingsButtons = append(a.settingsButtons, btn)
-	}, settingsOverlayRootElement{
+	a.drawUIRoot(screen, &a.settingsRuntime, func(chromeButton) {}, settingsOverlayRootElement{
 		outerRect: outerRect,
 		child: settingsOverlayElement{
 			app:      a,
@@ -625,6 +657,22 @@ func (e chromeButtonsElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 	children := make([]ui.Element, 0, len(e.buttons))
 	for _, btn := range e.buttons {
 		btn := btn
+		if ctx.Runtime != nil {
+			actionID := btn.id
+			onClick := btn.onClick
+			ctx.Runtime.Register(ui.Control{
+				ID:      actionID,
+				Rect:    ui.Rect{X: btn.rect.x, Y: btn.rect.y, W: btn.rect.w, H: btn.rect.h},
+				Enabled: btn.enabled,
+				OnClick: func(ui.PointerEvent) {
+					if onClick != nil {
+						onClick()
+					} else if ctx.OnAction != nil {
+						ctx.OnAction(actionID)
+					}
+				},
+			})
+		}
 		children = append(children, ui.Positioned{
 			X: btn.rect.x,
 			Y: btn.rect.y,
@@ -738,7 +786,7 @@ func (e settingsOverlayElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 			Child: ui.Align{
 				Horizontal: ui.AlignEnd,
 				Vertical:   ui.AlignStart,
-				Child:      ui.Button{ID: "settings_close", Label: "X", Enabled: true},
+				Child:      ui.Button{Label: "X", Enabled: true, OnClick: func() { e.app.closeSettingsOverlay() }},
 			},
 		},
 	}
@@ -780,8 +828,8 @@ func (e settingsH265ConfirmElement) Draw(ctx *ui.Context, bounds ui.Rect) {
 							}),
 							ui.Fixed(ui.Spacer{H: 16}),
 							ui.Fixed(ui.Wrap{Children: []ui.Element{
-								settingsActionElement("video_codec_h265_confirm", "Switch To H265", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 132),
-								settingsActionElement("video_codec_h265_cancel", "Cancel", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 84),
+								settingsActionButton("Switch To H265", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 132, e.app.confirmH265CodecAction),
+								settingsActionButton("Cancel", settingsActionVisual{Enabled: !e.app.settingsActionPending(settingsGroupVideoCodec)}, 84, func() { e.app.h265ConfirmOpen = false }),
 							}, Spacing: 12, LineSpacing: 8}),
 						},
 					},
@@ -1232,7 +1280,7 @@ func (a *App) measureSettingsBody(body ui.Element, width float64) float64 {
 	if body == nil {
 		return 0
 	}
-	ctx := a.newUIContext(nil, func(chromeButton) {})
+	ctx := a.newUIContext(nil, nil, func(chromeButton) {})
 	size := body.Measure(ctx, ui.Constraints{MaxW: width})
 	return size.H
 }
@@ -1284,6 +1332,17 @@ func settingsActionElement(id, label string, visual settingsActionVisual, width 
 	}
 }
 
+func settingsActionButton(label string, visual settingsActionVisual, width float64, onClick func()) ui.Element {
+	return ui.Button{
+		Label:   label,
+		Enabled: visual.Enabled,
+		Active:  visual.Active,
+		Pending: visual.Pending,
+		Width:   width,
+		OnClick: onClick,
+	}
+}
+
 func settingsToggleElement(id string, visual settingsActionVisual) ui.Element {
 	return ui.Toggle{
 		ID:      id,
@@ -1293,17 +1352,40 @@ func settingsToggleElement(id string, visual settingsActionVisual) ui.Element {
 	}
 }
 
-type settingsToggleRow struct {
-	id     string
-	label  string
-	visual settingsActionVisual
+func settingsToggleControl(visual settingsActionVisual, onClick func()) ui.Element {
+	return ui.Toggle{
+		Enabled: visual.Enabled,
+		Active:  visual.Active,
+		Pending: visual.Pending,
+		OnClick: onClick,
+	}
 }
 
-func (e settingsToggleRow) row(ctx *ui.Context) ui.Element {
+type settingsToggleRow struct {
+	id      string
+	label   string
+	visual  settingsActionVisual
+	onClick func()
+}
+
+func (e settingsToggleRow) row(ctx *ui.Context, interactive bool) ui.Element {
+	toggle := func() ui.Element {
+		if !interactive {
+			return ui.Toggle{
+				Enabled: e.visual.Enabled,
+				Active:  e.visual.Active,
+				Pending: e.visual.Pending,
+			}
+		}
+		if e.onClick != nil {
+			return settingsToggleControl(e.visual, e.onClick)
+		}
+		return settingsToggleElement(e.id, e.visual)
+	}()
 	return ui.Row{
 		AlignY: ui.AlignCenter,
 		Children: []ui.Child{
-			ui.Fixed(settingsToggleElement(e.id, e.visual)),
+			ui.Fixed(toggle),
 			ui.Fixed(ui.Spacer{W: 12}),
 			ui.Flex(ui.Label{Text: e.label, Size: 13, Color: ctx.Theme.Body}, 1),
 		},
@@ -1311,26 +1393,49 @@ func (e settingsToggleRow) row(ctx *ui.Context) ui.Element {
 }
 
 func (e settingsToggleRow) Measure(ctx *ui.Context, constraints ui.Constraints) ui.Size {
-	return e.row(ctx).Measure(ctx, constraints)
+	return e.row(ctx, false).Measure(ctx, constraints)
 }
 
 func (e settingsToggleRow) Draw(ctx *ui.Context, bounds ui.Rect) {
-	e.row(ctx).Draw(ctx, bounds)
+	if ctx.Runtime != nil {
+		var onClick func()
+		switch {
+		case e.onClick != nil:
+			onClick = e.onClick
+		case e.id != "" && ctx.OnAction != nil:
+			onClick = func() { ctx.OnAction(e.id) }
+		}
+		if onClick != nil {
+			ctx.Runtime.Register(ui.Control{
+				ID:      e.id,
+				Rect:    bounds,
+				Enabled: e.visual.Enabled,
+				OnClick: func(ui.PointerEvent) { onClick() },
+			})
+		}
+	}
+	e.row(ctx, false).Draw(ctx, bounds)
 }
 
 func settingsToggleRowElement(id, label string, visual settingsActionVisual) ui.Element {
 	return settingsToggleRow{id: id, label: label, visual: visual}
 }
 
+func settingsToggleRowControl(label string, visual settingsActionVisual, onClick func()) ui.Element {
+	return settingsToggleRow{label: label, visual: visual, onClick: onClick}
+}
+
 type settingsSliderRow struct {
-	id      string
-	label   string
-	value   string
-	min     float64
-	max     float64
-	step    float64
-	current float64
-	enabled bool
+	id       string
+	label    string
+	value    string
+	min      float64
+	max      float64
+	step     float64
+	current  float64
+	enabled  bool
+	onChange func(float64)
+	onCommit func(float64)
 }
 
 func (e settingsSliderRow) content(ctx *ui.Context) ui.Element {
@@ -1349,12 +1454,14 @@ func (e settingsSliderRow) content(ctx *ui.Context) ui.Element {
 				},
 			}),
 			ui.Fixed(ui.Slider{
-				ID:      e.id,
-				Value:   e.current,
-				Min:     e.min,
-				Max:     e.max,
-				Step:    e.step,
-				Enabled: e.enabled,
+				ID:       e.id,
+				Value:    e.current,
+				Min:      e.min,
+				Max:      e.max,
+				Step:     e.step,
+				Enabled:  e.enabled,
+				OnChange: e.onChange,
+				OnCommit: e.onCommit,
 			}),
 		},
 	}
@@ -1368,16 +1475,18 @@ func (e settingsSliderRow) Draw(ctx *ui.Context, bounds ui.Rect) {
 	e.content(ctx).Draw(ctx, bounds)
 }
 
-func settingsSliderRowElement(id, label, value string, current, minValue, maxValue, step float64, enabled bool) ui.Element {
+func settingsSliderRowElement(id, label, value string, current, minValue, maxValue, step float64, enabled bool, onChange, onCommit func(float64)) ui.Element {
 	return settingsSliderRow{
-		id:      id,
-		label:   label,
-		value:   value,
-		min:     minValue,
-		max:     maxValue,
-		step:    step,
-		current: current,
-		enabled: enabled,
+		id:       id,
+		label:    label,
+		value:    value,
+		min:      minValue,
+		max:      maxValue,
+		step:     step,
+		current:  current,
+		enabled:  enabled,
+		onChange: onChange,
+		onCommit: onCommit,
 	}
 }
 
@@ -1426,14 +1535,23 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 	jiggler := a.settingsAction(settingsGroupJiggler)
 	scrollThrottleMs := float64(a.scrollThrottle / time.Millisecond)
 	pointerThrottleMs := float64(a.pointerMoveThrottle / time.Millisecond)
+	updateScrollThrottle := func(value float64) {
+		a.scrollThrottle = throttleDurationFromMs(int(value))
+	}
+	updatePointerThrottle := func(value float64) {
+		a.pointerMoveThrottle = throttleDurationFromMs(int(value))
+	}
+	saveThrottlePrefs := func(float64) {
+		a.savePreferences()
+	}
 
 	leftChildren := []ui.Child{
 		ui.Fixed(settingsSectionLabelElement("Remote mode")),
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.Wrap{
 			Children: []ui.Element{
-				settingsActionElement("mouse_absolute", "Absolute", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative}, 110),
-				settingsActionElement("mouse_relative", "Relative", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative}, 110),
+				settingsActionButton("Absolute", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: !a.relative}, 110, func() { a.setMouseRelative(false) }),
+				settingsActionButton("Relative", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected, Active: a.relative}, 110, func() { a.setMouseRelative(true) }),
 			},
 			Spacing:     12,
 			LineSpacing: 8,
@@ -1441,7 +1559,11 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Local cursor")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsToggleRowElement("mouse_hide_cursor_toggle", "Hide Host Cursor", settingsActionVisual{Enabled: true, Active: a.hideCursor})),
+		ui.Fixed(settingsToggleRowControl("Hide Host Cursor", settingsActionVisual{Enabled: true, Active: a.hideCursor}, func() {
+			a.hideCursor = !a.hideCursor
+			a.applyCursorMode()
+			a.savePreferences()
+		})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Wheel")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1451,7 +1573,7 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 			Color: a.currentTheme().Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 12}),
-		ui.Fixed(settingsSliderRowElement(settingsScrollThrottleSliderID, "Wheel Throttle", throttleLabel(a.scrollThrottle), scrollThrottleMs, 0, maxScrollThrottleMs, 5, true)),
+		ui.Fixed(settingsSliderRowElement(settingsScrollThrottleSliderID, "Wheel Throttle", throttleLabel(a.scrollThrottle), scrollThrottleMs, 0, maxScrollThrottleMs, 5, true, updateScrollThrottle, saveThrottlePrefs)),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Pointer")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1461,9 +1583,12 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 			Color: a.currentTheme().Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 12}),
-		ui.Fixed(settingsSliderRowElement(settingsPointerThrottleSliderID, "Movement Throttle", throttleLabel(a.pointerMoveThrottle), pointerThrottleMs, 0, maxPointerMoveThrottleMs, 1, true)),
+		ui.Fixed(settingsSliderRowElement(settingsPointerThrottleSliderID, "Movement Throttle", throttleLabel(a.pointerMoveThrottle), pointerThrottleMs, 0, maxPointerMoveThrottleMs, 1, true, updatePointerThrottle, saveThrottlePrefs)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsToggleRowElement("scroll_invert", "Invert Scroll", settingsActionVisual{Enabled: true, Active: a.invertScroll})),
+		ui.Fixed(settingsToggleRowControl("Invert Scroll", settingsActionVisual{Enabled: true, Active: a.invertScroll}, func() {
+			a.invertScroll = !a.invertScroll
+			a.savePreferences()
+		})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Compatibility")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1473,7 +1598,10 @@ func (a *App) settingsMouseBody(snap session.Snapshot) ui.Element {
 			Color: a.currentTheme().Muted,
 		}),
 		ui.Fixed(ui.Spacer{H: 12}),
-		ui.Fixed(settingsToggleRowElement("absolute_side_buttons_via_relative_toggle", "Reroute Side Buttons in Absolute Mode", settingsActionVisual{Enabled: true, Active: a.prefs.AbsoluteSideButtonsViaRel})),
+		ui.Fixed(settingsToggleRowControl("Reroute Side Buttons in Absolute Mode", settingsActionVisual{Enabled: true, Active: a.prefs.AbsoluteSideButtonsViaRel}, func() {
+			a.prefs.AbsoluteSideButtonsViaRel = !a.prefs.AbsoluteSideButtonsViaRel
+			a.savePreferences()
+		})),
 	}
 
 	rightChildren := []ui.Child{}
@@ -1660,18 +1788,40 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(settingsKeyValueElement("Remote System", fallbackLabel(state.Update.Remote.SystemVersion, "Unavailable"), 112)),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsActionElement("check_updates", "Check for updates", settingsActionVisual{Enabled: !a.settingsActionPending(settingsGroupUpdateStatus)}, 0)),
+		ui.Fixed(settingsActionButton("Check for updates", settingsActionVisual{
+			Enabled: !a.settingsActionPending(settingsGroupUpdateStatus),
+		}, 0, func() {
+			if a.settingsActionPending(settingsGroupUpdateStatus) {
+				return
+			}
+			a.withSettingsAction(settingsGroupUpdateStatus, "refresh", func() error {
+				a.updateActionMessage = ""
+				return a.refreshSettingsSectionSync(sectionGeneral)
+			})
+		})),
 	}
 	if snap.AppUpdateAvailable || snap.SystemUpdateAvailable {
 		updateChildren = append(updateChildren,
 			ui.Fixed(ui.Spacer{H: 8}),
-			ui.Fixed(settingsActionElement("install_updates", "Install updates", settingsActionVisual{Enabled: !a.settingsActionPending(settingsGroupUpdateInstall)}, 0)),
+			ui.Fixed(settingsActionButton("Install updates", settingsActionVisual{
+				Enabled: !a.settingsActionPending(settingsGroupUpdateInstall),
+			}, 0, a.invokeInstallUpdates)),
 		)
 	}
 	updateState := a.settingsAction(settingsGroupUpdateStatus)
 	switch {
 	case updateState.Pending:
-		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement("Refreshing…", a.currentTheme().WarningStroke)))
+		updateChildren = append(updateChildren,
+			ui.Fixed(ui.Spacer{H: 12}),
+			ui.Fixed(ui.Row{
+				AlignY: ui.AlignCenter,
+				Children: []ui.Child{
+					ui.Fixed(ui.Spinner{Size: 14, Color: a.currentTheme().AccentText}),
+					ui.Fixed(ui.Spacer{W: 10}),
+					ui.Fixed(ui.Label{Text: "Checking latest versions…", Size: 12, Color: a.currentTheme().AccentText}),
+				},
+			}),
+		)
 	case updateState.Error != "":
 		updateChildren = append(updateChildren, ui.Fixed(ui.Spacer{H: 12}), ui.Fixed(settingsStatusElement(updateState.Error, a.currentTheme().Error)))
 	}
@@ -1693,9 +1843,19 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 	actionChildren := []ui.Child{
 		ui.Fixed(ui.Paragraph{Text: "Reconnect the native session, manage auto-updates, or force a device reboot.", Size: 12, Color: a.currentTheme().Muted}),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsActionElement("reconnect", reconnectLabel(snap.Phase), settingsActionVisual{Enabled: true}, 0)),
+		ui.Fixed(settingsActionButton(reconnectLabel(snap.Phase), settingsActionVisual{Enabled: true}, 0, func() {
+			if a.ctrl == nil {
+				return
+			}
+			a.releaseAllKeys(true)
+			a.ctrl.ReconnectNow()
+		})),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsActionElement("reboot", "Reboot device", settingsActionVisual{Enabled: snap.Phase != session.PhaseConnecting}, 0)),
+		ui.Fixed(settingsActionButton("Reboot device", settingsActionVisual{Enabled: snap.Phase != session.PhaseConnecting}, 0, func() {
+			a.runAsync(func() {
+				_ = a.ctrl.Reboot()
+			})
+		})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Auto updates")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -1705,10 +1865,21 @@ func (a *App) settingsGeneralBody(snap session.Snapshot) ui.Element {
 	} else {
 		actionChildren = append(actionChildren,
 			ui.Fixed(ui.Row{AlignY: ui.AlignCenter, Children: []ui.Child{
-				ui.Fixed(settingsToggleElement("auto_update_toggle", settingsActionVisual{
+				ui.Fixed(settingsToggleControl(settingsActionVisual{
 					Enabled: state.AutoUpdate != nil && !autoUpdate.Pending,
 					Active:  state.AutoUpdate != nil && *state.AutoUpdate,
 					Pending: autoUpdate.Pending,
+				}, func() {
+					if state.AutoUpdate == nil || autoUpdate.Pending {
+						return
+					}
+					next := !*state.AutoUpdate
+					a.withSettingsAction(settingsGroupAutoUpdate, strconv.FormatBool(next), func() error {
+						if err := a.ctrl.SetAutoUpdateState(next); err != nil {
+							return err
+						}
+						return a.refreshSettingsSectionSync(sectionGeneral)
+					})
 				})),
 				ui.Fixed(ui.Spacer{W: 12}),
 				ui.Fixed(ui.Label{Text: "Enabled", Size: 13, Color: a.currentTheme().Body}),
@@ -1747,11 +1918,19 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 		if len(option.Label) > 7 {
 			btnW = 112
 		}
-		buttons = append(buttons, settingsActionElement("layout:"+option.Code, option.Label, settingsActionVisual{
+		option := option
+		buttons = append(buttons, settingsActionButton(option.Label, settingsActionVisual{
 			Enabled: snap.Phase == session.PhaseConnected && (!layoutState.Pending || layoutState.PendingChoice == option.Code),
 			Active:  layout == option.Code,
 			Pending: layoutState.Pending && layoutState.PendingChoice == option.Code,
-		}, btnW))
+		}, btnW, func() {
+			if a.settingsActionPending(settingsGroupKeyboardLayout) {
+				return
+			}
+			a.withSettingsAction(settingsGroupKeyboardLayout, option.Code, func() error {
+				return a.ctrl.SetKeyboardLayout(option.Code)
+			})
+		}))
 	}
 	children := []ui.Child{
 		ui.Fixed(ui.Paragraph{Text: "This layout affects paste and keyboard macros. Live typing is sent as physical HID keys.", Size: 12, Color: a.currentTheme().Muted}),
@@ -1761,7 +1940,10 @@ func (a *App) settingsKeyboardBody(snap session.Snapshot) ui.Element {
 			ui.Flex(ui.Spacer{}, 1),
 		}, Spacing: 12}),
 		ui.Fixed(ui.Spacer{H: 18}),
-		ui.Fixed(settingsToggleRowElement("toggle_pressed_keys", "Show Pressed Keys", settingsActionVisual{Enabled: true, Active: a.showPressedKeys})),
+		ui.Fixed(settingsToggleRowControl("Show Pressed Keys", settingsActionVisual{Enabled: true, Active: a.showPressedKeys}, func() {
+			a.showPressedKeys = !a.showPressedKeys
+			a.savePreferences()
+		})),
 		ui.Fixed(ui.Spacer{H: 18}),
 		ui.Fixed(settingsSectionLabelElement("Layout presets")),
 		ui.Fixed(ui.Spacer{H: 10}),
@@ -1789,9 +1971,24 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(settingsSectionLabelElement("Quality preset")),
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("quality_preset_high", "High", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "high"), Active: snap.Quality >= 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "high"}, 96),
-			settingsActionElement("quality_preset_medium", "Medium", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "medium"), Active: snap.Quality >= 0.45 && snap.Quality < 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "medium"}, 96),
-			settingsActionElement("quality_preset_low", "Low", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "low"), Active: snap.Quality < 0.45, Pending: qualityState.Pending && qualityState.PendingChoice == "low"}, 96),
+			settingsActionButton("High", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "high"), Active: snap.Quality >= 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "high"}, 96, func() {
+				if a.settingsActionPending(settingsGroupVideoQuality) {
+					return
+				}
+				a.withSettingsAction(settingsGroupVideoQuality, "high", func() error { return a.ctrl.SetQuality(1.0) })
+			}),
+			settingsActionButton("Medium", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "medium"), Active: snap.Quality >= 0.45 && snap.Quality < 0.95, Pending: qualityState.Pending && qualityState.PendingChoice == "medium"}, 96, func() {
+				if a.settingsActionPending(settingsGroupVideoQuality) {
+					return
+				}
+				a.withSettingsAction(settingsGroupVideoQuality, "medium", func() error { return a.ctrl.SetQuality(0.5) })
+			}),
+			settingsActionButton("Low", settingsActionVisual{Enabled: snap.Phase == session.PhaseConnected && (!qualityState.Pending || qualityState.PendingChoice == "low"), Active: snap.Quality < 0.45, Pending: qualityState.Pending && qualityState.PendingChoice == "low"}, 96, func() {
+				if a.settingsActionPending(settingsGroupVideoQuality) {
+					return
+				}
+				a.withSettingsAction(settingsGroupVideoQuality, "low", func() error { return a.ctrl.SetQuality(0.1) })
+			}),
 		}, Spacing: 12, LineSpacing: 8}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(ui.Label{Text: fmt.Sprintf("Current factor %.2f", snap.Quality), Size: 13, Color: a.currentTheme().Body}),
@@ -1802,9 +1999,15 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(settingsSectionLabelElement("Codec preference")),
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("video_codec:auto", "Auto", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "auto", Active: state.State.Codec == session.VideoCodecAuto, Pending: codecState.Pending && codecState.PendingChoice == "auto"}, 72),
-			settingsActionElement("video_codec:h265", "H265", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h265", Active: state.State.Codec == session.VideoCodecH265, Pending: codecState.Pending && codecState.PendingChoice == "h265"}, 72),
-			settingsActionElement("video_codec:h264", "H264", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h264", Active: state.State.Codec == session.VideoCodecH264, Pending: codecState.Pending && codecState.PendingChoice == "h264"}, 72),
+			settingsActionButton("Auto", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "auto", Active: state.State.Codec == session.VideoCodecAuto, Pending: codecState.Pending && codecState.PendingChoice == "auto"}, 72, func() {
+				a.h265ConfirmOpen = false
+				a.invokeVideoCodecAction("auto", session.VideoCodecAuto)
+			}),
+			settingsActionButton("H265", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h265", Active: state.State.Codec == session.VideoCodecH265, Pending: codecState.Pending && codecState.PendingChoice == "h265"}, 72, a.openH265CodecConfirm),
+			settingsActionButton("H264", settingsActionVisual{Enabled: !codecState.Pending || codecState.PendingChoice == "h264", Active: state.State.Codec == session.VideoCodecH264, Pending: codecState.Pending && codecState.PendingChoice == "h264"}, 72, func() {
+				a.h265ConfirmOpen = false
+				a.invokeVideoCodecAction("h264", session.VideoCodecH264)
+			}),
 		}, Spacing: 12, LineSpacing: 8}),
 	)
 	switch {
@@ -1845,9 +2048,25 @@ func (a *App) settingsVideoBody(snap session.Snapshot) ui.Element {
 		ui.Fixed(ui.Paragraph{Text: pemSummary(a.videoCustomEDID), Size: 12, Color: a.currentTheme().Body}),
 		ui.Fixed(ui.Spacer{H: 10}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("video_edid_load_custom", "Load from Clipboard", settingsActionVisual{Enabled: !edidState.Pending}, 146),
-			settingsActionElement("video_edid_clear_custom", "Clear", settingsActionVisual{Enabled: !edidState.Pending}, 70),
-			settingsActionElement("video_edid_apply_custom", "Apply Custom", settingsActionVisual{Enabled: !edidState.Pending && strings.TrimSpace(a.videoCustomEDID) != "", Active: !isKnownEDIDPreset(edid) && strings.TrimSpace(edid) != "" && edid == strings.TrimSpace(a.videoCustomEDID), Pending: edidState.Pending && edidState.PendingChoice == "custom"}, 116),
+			settingsActionButton("Load from Clipboard", settingsActionVisual{Enabled: !edidState.Pending}, 146, func() {
+				text, err := readClipboardText()
+				if err != nil {
+					a.videoCustomEDIDMessage = err.Error()
+					a.videoCustomEDIDSuccess = false
+					return
+				}
+				a.videoCustomEDID = strings.TrimSpace(text)
+				a.videoCustomEDIDDirty = true
+				a.videoCustomEDIDMessage = "Custom EDID loaded from clipboard"
+				a.videoCustomEDIDSuccess = true
+			}),
+			settingsActionButton("Clear", settingsActionVisual{Enabled: !edidState.Pending}, 70, func() {
+				a.videoCustomEDID = ""
+				a.videoCustomEDIDDirty = true
+				a.videoCustomEDIDMessage = ""
+				a.videoCustomEDIDSuccess = false
+			}),
+			settingsActionButton("Apply Custom", settingsActionVisual{Enabled: !edidState.Pending && strings.TrimSpace(a.videoCustomEDID) != "", Active: !isKnownEDIDPreset(edid) && strings.TrimSpace(edid) != "" && edid == strings.TrimSpace(a.videoCustomEDID), Pending: edidState.Pending && edidState.PendingChoice == "custom"}, 116, a.invokeCustomEDID),
 		}, Spacing: 12, LineSpacing: 8}),
 	}
 	switch {
@@ -3000,19 +3219,29 @@ func (a *App) settingsAdvancedBody() ui.Element {
 
 func (a *App) settingsAppearanceBody() ui.Element {
 	themeButtons := []ui.Element{
-		settingsActionElement("theme:system", "System", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeSystem}, 92),
-		settingsActionElement("theme:dark", "Dark", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeDark}, 84),
-		settingsActionElement("theme:light", "Light", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeLight}, 84),
+		settingsActionButton("System", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeSystem}, 92, func() {
+			a.prefs.Theme = themeSystem
+			a.refreshSystemTheme()
+			a.savePreferences()
+		}),
+		settingsActionButton("Dark", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeDark}, 84, func() {
+			a.prefs.Theme = themeDark
+			a.savePreferences()
+		}),
+		settingsActionButton("Light", settingsActionVisual{Enabled: true, Active: a.prefs.Theme == themeLight}, 84, func() {
+			a.prefs.Theme = themeLight
+			a.savePreferences()
+		}),
 	}
 	positionButtons := []ui.Element{
-		settingsActionElement("chrome_anchor:top_left", "Top Left", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopLeft}, 96),
-		settingsActionElement("chrome_anchor:top_center", "Top Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopCenter}, 108),
-		settingsActionElement("chrome_anchor:top_right", "Top Right", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopRight}, 100),
-		settingsActionElement("chrome_anchor:left_center", "Left Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorLeftCenter}, 108),
-		settingsActionElement("chrome_anchor:right_center", "Right Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorRightCenter}, 118),
-		settingsActionElement("chrome_anchor:bottom_left", "Bottom Left", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomLeft}, 108),
-		settingsActionElement("chrome_anchor:bottom_center", "Bottom Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomCenter}, 126),
-		settingsActionElement("chrome_anchor:bottom_right", "Bottom Right", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomRight}, 118),
+		settingsActionButton("Top Left", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopLeft}, 96, func() { a.prefs.ChromeAnchor = chromeAnchorTopLeft; a.savePreferences() }),
+		settingsActionButton("Top Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopCenter}, 108, func() { a.prefs.ChromeAnchor = chromeAnchorTopCenter; a.savePreferences() }),
+		settingsActionButton("Top Right", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorTopRight}, 100, func() { a.prefs.ChromeAnchor = chromeAnchorTopRight; a.savePreferences() }),
+		settingsActionButton("Left Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorLeftCenter}, 108, func() { a.prefs.ChromeAnchor = chromeAnchorLeftCenter; a.savePreferences() }),
+		settingsActionButton("Right Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorRightCenter}, 118, func() { a.prefs.ChromeAnchor = chromeAnchorRightCenter; a.savePreferences() }),
+		settingsActionButton("Bottom Left", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomLeft}, 108, func() { a.prefs.ChromeAnchor = chromeAnchorBottomLeft; a.savePreferences() }),
+		settingsActionButton("Bottom Center", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomCenter}, 126, func() { a.prefs.ChromeAnchor = chromeAnchorBottomCenter; a.savePreferences() }),
+		settingsActionButton("Bottom Right", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeAnchor == chromeAnchorBottomRight}, 118, func() { a.prefs.ChromeAnchor = chromeAnchorBottomRight; a.savePreferences() }),
 	}
 	return settingsCardElement("Appearance", ui.Column{Children: []ui.Child{
 		ui.Fixed(settingsSectionLabelElement("Theme")),
@@ -3021,11 +3250,11 @@ func (a *App) settingsAppearanceBody() ui.Element {
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Icon bar")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsToggleRowElement("pin_chrome_toggle", "Pin Icon Bar", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome})),
+		ui.Fixed(settingsToggleRowControl("Pin Icon Bar", settingsActionVisual{Enabled: true, Active: a.prefs.PinChrome}, func() { a.prefs.PinChrome = !a.prefs.PinChrome; a.savePreferences() })),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsToggleRowElement("hide_header_bar_toggle", "Hide Button Hints", settingsActionVisual{Enabled: true, Active: a.prefs.HideHeaderBar})),
+		ui.Fixed(settingsToggleRowControl("Hide Button Hints", settingsActionVisual{Enabled: true, Active: a.prefs.HideHeaderBar}, func() { a.prefs.HideHeaderBar = !a.prefs.HideHeaderBar; a.savePreferences() })),
 		ui.Fixed(ui.Spacer{H: 14}),
-		ui.Fixed(settingsToggleRowElement("hide_status_bar_toggle", "Hide Footer Status", settingsActionVisual{Enabled: true, Active: a.prefs.HideStatusBar})),
+		ui.Fixed(settingsToggleRowControl("Hide Footer Status", settingsActionVisual{Enabled: true, Active: a.prefs.HideStatusBar}, func() { a.prefs.HideStatusBar = !a.prefs.HideStatusBar; a.savePreferences() })),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Position")),
 		ui.Fixed(ui.Spacer{H: 8}),
@@ -3034,13 +3263,13 @@ func (a *App) settingsAppearanceBody() ui.Element {
 		ui.Fixed(settingsSectionLabelElement("Layout")),
 		ui.Fixed(ui.Spacer{H: 8}),
 		ui.Fixed(ui.Wrap{Children: []ui.Element{
-			settingsActionElement("chrome_layout:horizontal", "Horizontal", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutHorizontal}, 112),
-			settingsActionElement("chrome_layout:vertical", "Vertical", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutVertical}, 96),
+			settingsActionButton("Horizontal", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutHorizontal}, 112, func() { a.prefs.ChromeLayout = chromeLayoutHorizontal; a.savePreferences() }),
+			settingsActionButton("Vertical", settingsActionVisual{Enabled: true, Active: a.prefs.ChromeLayout == chromeLayoutVertical}, 96, func() { a.prefs.ChromeLayout = chromeLayoutVertical; a.savePreferences() }),
 		}, Spacing: 12, LineSpacing: 8}),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsSectionLabelElement("Window")),
 		ui.Fixed(ui.Spacer{H: 8}),
-		ui.Fixed(settingsActionElement("fullscreen", "Toggle Fullscreen", settingsActionVisual{Enabled: true, Active: ebiten.IsFullscreen()}, 160)),
+		ui.Fixed(settingsActionButton("Toggle Fullscreen", settingsActionVisual{Enabled: true, Active: ebiten.IsFullscreen()}, 160, func() { ebiten.SetFullscreen(!ebiten.IsFullscreen()) })),
 		ui.Fixed(ui.Spacer{H: 14}),
 		ui.Fixed(settingsStatusElement("Position chooses where the icon bar sits on screen. Layout changes whether the controls run across or down. Button hints and footer status are desktop-only UI helpers.", a.currentTheme().Muted)),
 	}})

@@ -349,17 +349,14 @@ func isValidMediaURL(raw string) bool {
 
 func (a *App) drawMediaOverlay(screen *ebiten.Image, snap session.Snapshot) {
 	if !a.mediaOpen {
-		a.mediaButtons = nil
 		a.mediaPanel = rect{}
+		a.mediaRuntime.BeginFrame()
 		return
 	}
 	bounds := screen.Bounds()
 	a.mediaPanel = rect{}
-	a.mediaButtons = a.mediaButtons[:0]
 	_ = bounds
-	a.drawUIRoot(screen, func(btn chromeButton) {
-		a.mediaButtons = append(a.mediaButtons, btn)
-	}, ui.Inset{
+	a.drawUIRoot(screen, &a.mediaRuntime, func(chromeButton) {}, ui.Inset{
 		Insets: ui.UniformInsets(28),
 		Child: ui.Align{
 			Horizontal: ui.AlignCenter,

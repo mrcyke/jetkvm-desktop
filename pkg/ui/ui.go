@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 	"math"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -23,6 +24,10 @@ type Rect struct {
 	Y float64
 	W float64
 	H float64
+}
+
+func (r Rect) Contains(point Point) bool {
+	return point.X >= r.X && point.X <= r.Right() && point.Y >= r.Y && point.Y <= r.Bottom()
 }
 
 func (r Rect) Inset(in Insets) Rect {
@@ -241,12 +246,15 @@ func LightTheme() Theme {
 
 type Context struct {
 	Screen            *ebiten.Image
+	Now               time.Time
 	Theme             Theme
 	MeasureText       func(value string, size float64) (float64, float64)
 	MeasureWrapped    func(value string, width, size float64) float64
 	DrawText          func(dst *ebiten.Image, value string, x, y, size float64, clr color.Color)
 	DrawWrappedText   func(dst *ebiten.Image, value string, x, y, width, size float64, clr color.Color) float64
 	RegisterHitTarget func(HitTarget)
+	Runtime           *Runtime
+	OnAction          func(id string)
 }
 
 func (c *Context) FillRect(r Rect, clr color.Color) {
@@ -315,6 +323,15 @@ func (c *Context) FillStrokedRoundedRect(r Rect, width, radius float64, stroke, 
 }
 
 func (c *Context) AddHit(id string, r Rect, enabled bool) {
+	if c.Runtime != nil {
+		control := Control{ID: id, Rect: r, Enabled: enabled}
+		if c.OnAction != nil && id != "" {
+			control.OnClick = func(PointerEvent) {
+				c.OnAction(id)
+			}
+		}
+		c.Runtime.Register(control)
+	}
 	if c.RegisterHitTarget == nil || id == "" {
 		return
 	}
