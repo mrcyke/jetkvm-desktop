@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -12,9 +17,34 @@ import (
 	"github.com/lkarlslund/jetkvm-desktop/pkg/logging"
 )
 
+const defaultPasswordEnv = "JETKVM_PASSWORD"
+
+func readPassword(r io.Reader) (string, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(data), "\r\n"), nil
+}
+
+func resolvePassword(passwordFromStdin bool, passwordEnv string, stdin io.Reader, getenv func(string) string) (string, error) {
+	switch {
+	case passwordFromStdin && passwordEnv != "":
+		return "", errors.New("--password-stdin and --password-env cannot be used together")
+	case passwordFromStdin:
+		return readPassword(stdin)
+	case passwordEnv != "":
+		return getenv(passwordEnv), nil
+	default:
+		return getenv(defaultPasswordEnv), nil
+	}
+}
+
 func main() {
 	cfg := app.Config{}
 	logLevel := ""
+	passwordFromStdin := false
+	passwordEnv := ""
 
 	rootCmd := &cobra.Command{
 		Use:   "jetkvm-desktop [base-url-or-host]",
@@ -24,6 +54,11 @@ func main() {
 			if len(args) == 1 {
 				cfg.BaseURL = args[0]
 			}
+			password, err := resolvePassword(passwordFromStdin, passwordEnv, os.Stdin, os.Getenv)
+			if err != nil {
+				return fmt.Errorf("resolve password: %w", err)
+			}
+			cfg.Password = password
 
 			if err := logging.Configure(logLevel); err != nil {
 				return err
@@ -46,7 +81,8 @@ func main() {
 			return ebiten.RunGame(clientApp)
 		},
 	}
-	rootCmd.Flags().StringVar(&cfg.Password, "password", "", "Password for local auth mode")
+	rootCmd.Flags().BoolVar(&passwordFromStdin, "password-stdin", false, "Read password for local auth mode from stdin")
+	rootCmd.Flags().StringVar(&passwordEnv, "password-env", "", fmt.Sprintf("Read password for local auth mode from the named environment variable (default fallback: %s)", defaultPasswordEnv))
 	rootCmd.Flags().StringVar(&logLevel, "log-level", "", "Log level: error, warn, info, debug, trace (default: error; env: JETKVM_DESKTOP_LOG_LEVEL)")
 	rootCmd.Flags().DurationVar(&cfg.RPCTimeout, "rpc-timeout", 5*time.Second, "Timeout for JSON-RPC requests")
 
